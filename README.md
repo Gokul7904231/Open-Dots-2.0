@@ -181,6 +181,8 @@ npx copilotkit@latest project select
 
 `project select` writes a project key to `.env` as `CPK_INTELLIGENCE_API_KEY`. Keep the generated `CPK_TELEMETRY_ID` with that key so SDK usage can resolve to your Intelligence account. Then add `OPENAI_API_KEY` and `OPENAI_MODEL` to `.env` and restart `npm run dev`.
 
+Optional: configure `OPENAI_EMBEDDING_BASE_URL`, `OPENAI_EMBEDDING_API_KEY`, `OPENAI_EMBEDDING_MODEL=embeddinggemma-2`, and `OPENAI_EMBEDDING_DIMENSIONS=768` to connect a separate EmbeddingGemma-compatible embeddings endpoint. Keep that key on the server; it is not the chat model and must not replace `OPENAI_BASE_URL`. The owner-protected backend exposes `GET /api/embedding/status` and `POST /api/embeddings` for diagnostics and text-vector generation. See [EmbeddingGemma setup](docs/SETUP.md#embeddinggemma-2-api).
+
 Do not run `copilotkit onboard` in this folder. OpenDots already contains its CopilotKit integration, and onboarding adds a second, generic one.
 
 See [Setup](docs/SETUP.md) for configuration, Slack, calls, the browser service, and Docker.
