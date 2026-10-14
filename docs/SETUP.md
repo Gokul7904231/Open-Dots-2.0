@@ -74,6 +74,10 @@ Edit `.env` on the server and restart after changes:
 | `INTELLIGENCE_GATEWAY_WS_URL`, `INTELLIGENCE_WS_URL` | Gateway WebSocket override (CLI name preferred; legacy name supported) |
 | `OPENAI_API_KEY`, `OPENAI_MODEL`                     | Model credential and model identifier                                  |
 | `OPENAI_BASE_URL`                                    | Compatible model API endpoint                                          |
+| `OPENAI_EMBEDDING_BASE_URL`                          | Separate OpenAI-compatible embeddings endpoint, ending in `/v1`        |
+| `OPENAI_EMBEDDING_API_KEY`                           | Server-only Bearer key for the embeddings endpoint                      |
+| `OPENAI_EMBEDDING_MODEL`                             | Embedding model ID (default `embeddinggemma-2`)                         |
+| `OPENAI_EMBEDDING_DIMENSIONS`                        | Vector size: `128`, `256`, `512`, or `768` (default `768`)               |
 | `OWNER_ID`                                           | Stable identity used for this deployment's conversations               |
 | `DATABASE_PATH`                                      | SQLite file containing pages, workspace and work metadata              |
 | `OWNER_TOKEN`                                        | Application access token; required for external bindings               |
@@ -84,6 +88,38 @@ Edit `.env` on the server and restart after changes:
 A non-empty `INTELLIGENCE_GATEWAY_WS_URL` takes precedence over `INTELLIGENCE_WS_URL`. Without either WebSocket override, OpenDots uses the hosted gateway. Set both the API and gateway endpoints when connecting a self-hosted deployment.
 
 The model environment variable names follow the configured provider adapter. Provider credentials belong in `.env`, not client-side variables or source code. Conversation history lives in the configured Intelligence project; copying the SQLite file alone does not back up that history.
+
+## EmbeddingGemma 2 API
+
+The optional EmbeddingGemma integration is a **separate embeddings provider**. It does not replace `OPENAI_API_KEY`, `OPENAI_BASE_URL`, or `OPENAI_MODEL`, which configure chat/research generation.
+
+Set these on the OpenDots server (local `.env` or your deployment's secret/environment settings):
+
+```dotenv
+OPENAI_EMBEDDING_BASE_URL=https://YOUR_EMBEDDING_HOST/v1
+OPENAI_EMBEDDING_API_KEY=YOUR_EMBED_API_KEY
+OPENAI_EMBEDDING_MODEL=embeddinggemma-2
+OPENAI_EMBEDDING_DIMENSIONS=768
+```
+
+The URL must use HTTPS for remote hosts and end in `/v1`. HTTP is permitted for localhost-only development. Keep the API key server-side; do not expose it in client-side variables or commit it to Git. Leave both URL and key empty to keep the optional integration disabled.
+
+The authenticated OpenDots backend provides:
+
+- `GET /api/embedding/status` — checks whether the provider is configured and its `/health` endpoint is reachable.
+- `POST /api/embeddings` — forwards text to the embedding provider and returns validated vectors. Request JSON accepts `input` as one string or a batch of up to 16 strings, optional `task` (`query`, `document`, `code_query`, `qa`, `fact_check`, `classification`, `clustering`, or `similarity`), and optional `dimensions` (`128`, `256`, `512`, `768`).
+
+Example request body:
+
+```json
+{
+  "input": "Find notes related to semantic retrieval",
+  "task": "query",
+  "dimensions": 768
+}
+```
+
+The API key is attached by the server; clients call only the OpenDots route and authenticate using the existing owner token when configured. This change adds the secured provider client and proxy endpoints. It does not yet add automatic page indexing or semantic ranking; those should be built as a separate retrieval feature so existing page search and storage behavior stay unchanged.
 
 ## Pages and page conversations
 
