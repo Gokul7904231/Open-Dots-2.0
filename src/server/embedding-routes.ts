@@ -21,7 +21,14 @@ const requestSchema = z
   .object({
     input: z.union([textSchema, z.array(textSchema).min(1).max(16)]),
     task: taskSchema.optional(),
-    dimensions: z.union([z.literal(128), z.literal(256), z.literal(512), z.literal(768)]).optional(),
+    dimensions: z
+      .union([
+        z.literal(128),
+        z.literal(256),
+        z.literal(512),
+        z.literal(768),
+      ])
+      .optional(),
   })
   .strict();
 
@@ -31,7 +38,9 @@ export function embeddingRoutes(client: EmbeddingGemmaClient) {
   app.get('/embedding/status', async (c) => c.json(await client.status()));
 
   app.post('/embeddings', async (c) => {
-    const parsed = requestSchema.safeParse(await c.req.json().catch(() => null));
+    const parsed = requestSchema.safeParse(
+      await c.req.json().catch(() => null),
+    );
     if (!parsed.success) {
       return c.json(
         {
@@ -50,7 +59,8 @@ export function embeddingRoutes(client: EmbeddingGemmaClient) {
       );
       return c.json(result);
     } catch (error) {
-      const status = error instanceof EmbeddingProviderError ? error.status : 502;
+      const status =
+        error instanceof EmbeddingProviderError ? error.status : 502;
       return c.json(
         {
           error:
