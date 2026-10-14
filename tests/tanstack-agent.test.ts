@@ -358,3 +358,57 @@ it('reports a turn that hits the time limit as a RUN_ERROR instead of ending sil
     vi.useRealTimers();
   }
 });
+
+it('falls back to secondary model when primary model fails', async () => {
+  const store = new Store(':memory:');
+  const workspace = new WorkspaceStore(':memory:', 'owner');
+  databases.push(store, workspace);
+  const dot = workspace.dots()[0];
+  workspace.bindThread('thread-fallback', dot.id, 'TanStack Fallback');
+  const agent = new DotAgent(
+    store,
+    workspace,
+    {
+      intelligenceKey: 'fixture',
+      apiKey: 'fixture',
+      model: 'primary-failing,secondary-working',
+      baseUrl: 'https://unused.invalid/v1',
+      runtimeUrl: '',
+      voiceName: 'marin',
+      slackUsers: [],
+    },
+    dot.id,
+  );
+  const input: RunAgentInput = {
+    threadId: 'thread-fallback',
+    runId: 'run-fb',
+    state: {},
+    context: [],
+    messages: [
+      { id: 'user', role: 'user', content: 'Say hello.' },
+    ],
+    tools: [],
+  };
+  const calls: any[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    calls.push(body.model);
+    if (body.model === 'primary-failing') {
+      return new Response(JSON.stringify({ error: { message: 'Quota exceeded', code: 429 } }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return completion({ content: 'Hello from fallback!' });
+  });
+  const events = await lastValueFrom(agent.run(input).pipe(toArray()));
+  expect(calls).toEqual(['primary-failing', 'primary-failing', 'secondary-working']);
+  expect(events).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        type: EventType.TEXT_MESSAGE_CHUNK,
+        delta: 'Hello from fallback!',
+      }),
+    ]),
+  );
+});

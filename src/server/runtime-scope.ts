@@ -24,7 +24,13 @@ export function validateRuntimeScope(
   let match: RegExpMatchArray | null;
   // Match the whole path. The SDK accepts suffix matches, so accepting arbitrary
   // prefixes here would validate a different thread than the SDK dispatches.
-  if (path === 'info' || path === 'threads') methods = ['GET'];
+  if (
+    path === 'info' ||
+    path === 'threads' ||
+    path === 'inspector-metadata' ||
+    path === 'inspector-learning'
+  )
+    methods = ['GET'];
   else if (path === 'threads/subscribe') methods = ['POST'];
   else if ((match = path.match(/^agent\/([^/]+)\/(run|connect|suggest)$/))) {
     agentId = id(match[1]);
@@ -58,16 +64,25 @@ export function validateRuntimeScope(
     methods = ['PATCH', 'DELETE'];
   } else return deny();
   if (!methods.includes(request.method)) return deny();
+  const resolveDotId = (cand: string): string | undefined => {
+    if (workspace.dot(cand)) return cand;
+    if (cand.startsWith('chat-')) {
+      const tid = cand.slice(5);
+      const thread = workspace.conversations().find((t) => t.id === tid);
+      if (thread && workspace.dot(thread.dotId)) return thread.dotId;
+    }
+    return undefined;
+  };
   const bodyAgent = typeof data.agentId === 'string' ? data.agentId : undefined;
   const queryAgent = url.searchParams.get('agentId') ?? undefined;
   for (const candidate of [agentId, bodyAgent, queryAgent]) {
-    if (
-      candidate &&
-      (!workspace.dot(candidate) || (agentId && candidate !== agentId))
-    )
-      return deny();
+    if (candidate) {
+      const resolved = resolveDotId(candidate);
+      if (!resolved || (agentId && resolveDotId(agentId) !== resolved))
+        return deny();
+    }
   }
-  agentId ??= bodyAgent ?? queryAgent;
+  const effectiveDot = resolveDotId(agentId ?? bodyAgent ?? queryAgent ?? '');
   for (const candidate of [
     threadId,
     typeof data.threadId === 'string' ? data.threadId : undefined,
@@ -75,7 +90,7 @@ export function validateRuntimeScope(
   ]) {
     if (candidate) {
       if (threadId && candidate !== threadId) return deny();
-      workspace.requireThread(candidate, agentId);
+      workspace.requireThread(candidate, effectiveDot);
     }
   }
 }

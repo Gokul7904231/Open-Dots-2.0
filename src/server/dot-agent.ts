@@ -29,6 +29,32 @@ const channelError = () => ({
   message:
     'OpenDots could not complete this request. Please check the app and try again.',
 });
+function createFallbackAdapter(
+  models: string[],
+  config: Parameters<typeof openaiCompatibleText>[1],
+) {
+  const adapter = openaiCompatibleText(models[0], config);
+  const client = (adapter as any).client;
+  const origCreate = client.chat.completions.create.bind(
+    client.chat.completions,
+  );
+  client.chat.completions.create = async function (
+    body: any,
+    options: any,
+  ) {
+    for (let i = 0; i < models.length; i++) {
+      try {
+        return await origCreate({ ...body, model: models[i] }, options);
+      } catch (err) {
+        if (i < models.length - 1) {
+          continue;
+        }
+        throw err;
+      }
+    }
+  };
+  return adapter;
+}
 const TURN_TIME_LIMIT_MS = 90_000;
 export class DotAgent extends AbstractAgent {
   private inner?: BuiltInAgent;
@@ -304,12 +330,24 @@ export class DotAgent extends AbstractAgent {
           initialSettings.memoryAllowed && dot.memoryAllowed
             ? this.store.memories().map((memory) => memory.text)
             : [];
-        const adapter = openaiCompatibleText(this.config.model, {
-          apiKey: this.config.apiKey,
-          baseURL: this.config.baseUrl ?? 'https://api.openai.com/v1',
-          api: 'chat-completions',
-          maxRetries: 1,
-        });
+        const models = (this.config.model ?? '')
+          .split(',')
+          .map((m) => m.trim())
+          .filter(Boolean);
+        const adapter =
+          models.length > 1
+            ? createFallbackAdapter(models, {
+                apiKey: this.config.apiKey,
+                baseURL: this.config.baseUrl ?? 'https://api.openai.com/v1',
+                api: 'chat-completions',
+                maxRetries: 1,
+              })
+            : openaiCompatibleText(models[0] || this.config.model, {
+                apiKey: this.config.apiKey,
+                baseURL: this.config.baseUrl ?? 'https://api.openai.com/v1',
+                api: 'chat-completions',
+                maxRetries: 1,
+              });
         const serverTools = [
           ...tools,
           ...pageTools(pages),

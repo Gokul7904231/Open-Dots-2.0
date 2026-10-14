@@ -36,6 +36,7 @@ import { Mascot } from './Mascot';
 import { useVoice } from './useVoice';
 import { CallView } from './CallView';
 import { shouldSubmitComposerOnKeyDown } from './chat-composer';
+import { speakWithSonia } from '../lib/soniaVoice';
 
 export function Chat({
   thread,
@@ -151,6 +152,17 @@ export function Chat({
           'The current turn returned no response. Check the runtime connection and retry.',
         );
       onSaved();
+      const assistantMessage = [...result.newMessages]
+        .reverse()
+        .find(
+          (message) =>
+            message.role === 'assistant' &&
+            typeof message.content === 'string' &&
+            message.content.trim(),
+        );
+      if (assistantMessage && typeof assistantMessage.content === 'string') {
+        void speakWithSonia(assistantMessage.content);
+      }
     } catch (e) {
       setError(
         e instanceof Error
