@@ -1,5 +1,7 @@
 import { computerRoutes } from './computer-routes.js';
 import { connectionRoutes } from './connection-routes.js';
+import { embeddingRoutes } from './embedding-routes.js';
+import type { EmbeddingGemmaClient } from './embedding-gemma.js';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { timingSafeEqual } from 'node:crypto';
@@ -18,6 +20,7 @@ export interface AppOptions {
   ownerToken?: string;
   origin?: string | string[];
   platform?: Platform;
+  embeddingGemma?: EmbeddingGemmaClient;
 }
 export function createApp({
   store,
@@ -26,8 +29,10 @@ export function createApp({
   ownerToken,
   origin,
   platform,
+  embeddingGemma,
 }: AppOptions) {
   const app = new Hono();
+  if (embeddingGemma) app.route('/api', embeddingRoutes(embeddingGemma));
   app.use(
     '/api/*',
     bodyLimit({
