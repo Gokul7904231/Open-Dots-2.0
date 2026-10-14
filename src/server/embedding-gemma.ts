@@ -53,19 +53,26 @@ export class EmbeddingGemmaClient {
   readonly dimensions: number;
   private readonly baseUrl: string;
   private readonly apiKey: string;
-  private readonly configState: 'not_configured' | 'misconfigured' | 'configured';
+  private readonly configState:
+    | 'not_configured'
+    | 'misconfigured'
+    | 'configured';
   private readonly configReason?: string;
 
   constructor(
     env: Env = process.env,
     private readonly fetcher: Fetcher = fetch,
   ) {
-    this.baseUrl = (env.OPENAI_EMBEDDING_BASE_URL ?? '').trim().replace(/\/+$/, '');
+    this.baseUrl = (env.OPENAI_EMBEDDING_BASE_URL ?? '')
+      .trim()
+      .replace(/\/+$/, '');
     this.apiKey = (env.OPENAI_EMBEDDING_API_KEY ?? '').trim();
     this.model = (env.OPENAI_EMBEDDING_MODEL ?? 'embeddinggemma-2').trim();
     const rawDimensions = (env.OPENAI_EMBEDDING_DIMENSIONS ?? '768').trim();
     const parsedDimensions = Number(rawDimensions);
-    this.dimensions = Number.isInteger(parsedDimensions) ? parsedDimensions : 0;
+    this.dimensions = Number.isInteger(parsedDimensions)
+      ? parsedDimensions
+      : 0;
 
     if (!this.baseUrl && !this.apiKey) {
       this.configState = 'not_configured';
@@ -74,7 +81,8 @@ export class EmbeddingGemmaClient {
 
     if (!this.baseUrl || !this.apiKey) {
       this.configState = 'misconfigured';
-      this.configReason = 'Set both OPENAI_EMBEDDING_BASE_URL and OPENAI_EMBEDDING_API_KEY.';
+      this.configReason =
+        'Set both OPENAI_EMBEDDING_BASE_URL and OPENAI_EMBEDDING_API_KEY.';
       return;
     }
 
@@ -86,7 +94,8 @@ export class EmbeddingGemmaClient {
 
     if (!SUPPORTED_DIMENSIONS.has(this.dimensions)) {
       this.configState = 'misconfigured';
-      this.configReason = 'OPENAI_EMBEDDING_DIMENSIONS must be 128, 256, 512, or 768.';
+      this.configReason =
+        'OPENAI_EMBEDDING_DIMENSIONS must be 128, 256, 512, or 768.';
       return;
     }
 
@@ -102,14 +111,17 @@ export class EmbeddingGemmaClient {
         url.hash
       ) {
         this.configState = 'misconfigured';
-        this.configReason = 'OPENAI_EMBEDDING_BASE_URL must be an HTTPS URL ending in /v1 (HTTP is allowed for localhost only).';
+        this.configReason =
+          'OPENAI_EMBEDDING_BASE_URL must be an HTTPS URL ending in /v1 (HTTP is allowed for localhost only).';
         return;
       }
     } catch {
       this.configState = 'misconfigured';
-      this.configReason = 'OPENAI_EMBEDDING_BASE_URL must be a valid URL ending in /v1.';
+      this.configReason =
+        'OPENAI_EMBEDDING_BASE_URL must be a valid URL ending in /v1.';
       return;
     }
+
     this.configState = 'configured';
   }
 
@@ -145,8 +157,9 @@ export class EmbeddingGemmaClient {
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) throw new Error('health request failed');
-      const body = (await response.json()) as { status?: unknown; model?: unknown };
+      const body = (await response.json()) as { status?: unknown };
       if (body.status !== 'ok') throw new Error('health response was not ready');
+
       return {
         state: 'ready',
         configured: true,
@@ -161,7 +174,8 @@ export class EmbeddingGemmaClient {
         reachable: false,
         model: this.model,
         dimensions: this.dimensions,
-        reason: 'EmbeddingGemma health check failed. Check the service URL and confirm the host is running.',
+        reason:
+          'EmbeddingGemma health check failed. Check the service URL and confirm the host is running.',
       };
     }
   }
@@ -173,19 +187,34 @@ export class EmbeddingGemmaClient {
     signal?: AbortSignal,
   ): Promise<EmbeddingResponse> {
     if (this.configState === 'not_configured') {
-      throw new EmbeddingProviderError('EmbeddingGemma is not configured.', 503);
+      throw new EmbeddingProviderError(
+        'EmbeddingGemma is not configured.',
+        503,
+      );
     }
     if (this.configState === 'misconfigured') {
-      throw new EmbeddingProviderError(this.configReason ?? 'EmbeddingGemma configuration is invalid.', 503);
+      throw new EmbeddingProviderError(
+        this.configReason ?? 'EmbeddingGemma configuration is invalid.',
+        503,
+      );
     }
     if (!SUPPORTED_DIMENSIONS.has(dimensions)) {
-      throw new EmbeddingProviderError('Dimensions must be 128, 256, 512, or 768.', 400);
+      throw new EmbeddingProviderError(
+        'Dimensions must be 128, 256, 512, or 768.',
+        400,
+      );
     }
+
     const inputs = typeof input === 'string' ? [input] : input;
     if (
       !inputs.length ||
       inputs.length > MAX_BATCH_SIZE ||
-      inputs.some((item) => typeof item !== 'string' || !item.trim() || item.length > MAX_INPUT_CHARS)
+      inputs.some(
+        (item) =>
+          typeof item !== 'string' ||
+          !item.trim() ||
+          item.length > MAX_INPUT_CHARS,
+      )
     ) {
       throw new EmbeddingProviderError(
         `Provide between 1 and ${MAX_BATCH_SIZE} non-empty text inputs, each no longer than ${MAX_INPUT_CHARS} characters.`,
@@ -205,11 +234,24 @@ export class EmbeddingGemmaClient {
         signal: signal ?? AbortSignal.timeout(120_000),
       });
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new EmbeddingProviderError('EmbeddingGemma request timed out.', 504);
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw new EmbeddingProviderError(
+          'EmbeddingGemma request timed out.',
+          504,
+        );
       }
-      throw new EmbeddingProviderError('Could not reach the EmbeddingGemma API.', 502);
+      if (signal?.aborted) {
+        throw new EmbeddingProviderError(
+          'Embedding request was cancelled.',
+          504,
+        );
+      }
+      throw new EmbeddingProviderError(
+        'Could not reach the EmbeddingGemma API.',
+        502,
+      );
     }
+
     if (!response.ok) {
       throw new EmbeddingProviderError(
         `EmbeddingGemma API returned HTTP ${response.status}.`,
@@ -221,18 +263,32 @@ export class EmbeddingGemmaClient {
     try {
       body = await response.json();
     } catch {
-      throw new EmbeddingProviderError('EmbeddingGemma returned invalid JSON.', 502);
+      throw new EmbeddingProviderError(
+        'EmbeddingGemma returned invalid JSON.',
+        502,
+      );
     }
-    if (!body || typeof body !== 'object' || !Array.isArray((body as { data?: unknown }).data)) {
-      throw new EmbeddingProviderError('EmbeddingGemma returned an invalid embedding response.', 502);
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      !Array.isArray((body as { data?: unknown }).data)
+    ) {
+      throw new EmbeddingProviderError(
+        'EmbeddingGemma returned an invalid embedding response.',
+        502,
+      );
     }
+
     const raw = body as {
       data: { index?: unknown; embedding?: unknown }[];
       model?: unknown;
       usage?: EmbeddingResponse['usage'];
     };
     if (raw.data.length !== inputs.length) {
-      throw new EmbeddingProviderError('EmbeddingGemma returned an unexpected number of vectors.', 502);
+      throw new EmbeddingProviderError(
+        'EmbeddingGemma returned an unexpected number of vectors.',
+        502,
+      );
     }
 
     const data: EmbeddingVector[] = raw.data.map((item, index) => {
@@ -240,9 +296,14 @@ export class EmbeddingGemmaClient {
         !item ||
         !Array.isArray(item.embedding) ||
         item.embedding.length !== dimensions ||
-        item.embedding.some((value) => typeof value !== 'number' || !Number.isFinite(value))
+        item.embedding.some(
+          (value) => typeof value !== 'number' || !Number.isFinite(value),
+        )
       ) {
-        throw new EmbeddingProviderError('EmbeddingGemma returned a malformed vector.', 502);
+        throw new EmbeddingProviderError(
+          'EmbeddingGemma returned a malformed vector.',
+          502,
+        );
       }
       return {
         object: 'embedding',
