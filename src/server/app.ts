@@ -32,7 +32,6 @@ export function createApp({
   embeddingGemma,
 }: AppOptions) {
   const app = new Hono();
-  if (embeddingGemma) app.route('/api', embeddingRoutes(embeddingGemma));
   app.use(
     '/api/*',
     bodyLimit({
@@ -95,6 +94,7 @@ export function createApp({
       return c.json({ error: 'Use application/json.' }, 415);
     await next();
   });
+  if (embeddingGemma) app.route('/api', embeddingRoutes(embeddingGemma));
   if (platform) app.route('/api', computerRoutes(platform.computers));
   if (platform)
     app.route(
