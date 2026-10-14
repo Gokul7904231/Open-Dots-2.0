@@ -9,6 +9,7 @@ import { createApp } from './app.js';
 import { resolveAppOrigins } from './app-origin.js';
 import { WorkspaceStore } from './workspace.js';
 import { Platform } from './platform.js';
+import { EmbeddingGemmaClient } from './embedding-gemma.js';
 import {
   intelligenceApiKeyFromEnv,
   intelligenceWsUrlFromEnv,
@@ -59,6 +60,7 @@ const config: PlatformConfig = {
   ownerToken,
 };
 const platform = new Platform(store, workspace, config);
+const embeddingGemma = new EmbeddingGemmaClient(process.env);
 const researchConfig = {
   mode: 'live' as const,
   apiKey: config.apiKey,
@@ -95,6 +97,7 @@ const app = createApp({
   ownerToken,
   origin: resolveAppOrigins(process.env.APP_ORIGIN, process.env.NODE_ENV),
   platform,
+  embeddingGemma,
 });
 app.use('*', async (c, next) => {
   c.header('X-Content-Type-Options', 'nosniff');
