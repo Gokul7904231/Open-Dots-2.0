@@ -1,3 +1,7 @@
+# Open-Dots-2.0
+
+> This is Exclusively build for me ,and official will me more generic than mine so ,i have my own license bro back off!!
+
 <div align="center">
 
 # OpenDots
@@ -247,3 +251,4 @@ Parallel is selected by default in live research and Dot conversations. Ask a to
 `WEB_SEARCH_PROVIDER=browser` preserves the existing URL-only browser reader, and `WEB_SEARCH_PROVIDER=disabled` disables these research tools. Workspace and Dot research permissions, pause and cancellation controls still apply. Sample research remains fictional and does not contact a provider.
 
 Queries, requested URLs, a stable session identifier and the research objective are sent to `https://search.parallel.ai/mcp`. Memories and complete conversations are not automatically forwarded to Parallel. Model-selected objectives may still contain context from the conversation. The anonymous service is free for light use with provider-managed limits; set `PARALLEL_API_KEY` on the server for production or higher limits. Provider errors and empty results are reported rather than replaced with invented evidence. See [Parallel Search MCP documentation](https://docs.parallel.ai/integrations/mcp/search-mcp).
+
