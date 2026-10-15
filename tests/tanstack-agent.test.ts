@@ -387,7 +387,7 @@ it('falls back to secondary model when primary model fails', async () => {
     messages: [{ id: 'user', role: 'user', content: 'Say hello.' }],
     tools: [],
   };
-  const calls: any[] = [];
+  const calls: string[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     calls.push(body.model);
