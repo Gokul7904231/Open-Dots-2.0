@@ -48,7 +48,11 @@ describe('EmbeddingGemma memory retrieval', () => {
 
     const memories = [
       { id: 'cooking', text: 'I enjoy cooking at weekends.', createdAt: 2 },
-      { id: 'writing', text: 'Prefer concise technical reports.', createdAt: 1 },
+      {
+        id: 'writing',
+        text: 'Prefer concise technical reports.',
+        createdAt: 1,
+      },
     ];
     const matches = await retrieveRelevantMemories(
       'Write a technical report',
@@ -60,8 +64,12 @@ describe('EmbeddingGemma memory retrieval', () => {
     expect(matches[0].id).toBe('writing');
     expect(matches[0].score).toBeCloseTo(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0][0]).toBe('https://embeddings.example/v1/embeddings');
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer test-api-key');
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://embeddings.example/v1/embeddings',
+    );
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      '***',
+    );
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
       input: ['Write a technical report'],
       model: 'embeddinggemma-2',
@@ -78,9 +86,11 @@ describe('EmbeddingGemma memory retrieval', () => {
   it('validates vectors rather than silently accepting a mismatched dimension', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        Response.json({ data: [{ index: 0, embedding: [1, 0] }] }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json({ data: [{ index: 0, embedding: [1, 0] }] }),
+        ),
     );
     await expect(
       retrieveRelevantMemories(
