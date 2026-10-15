@@ -73,8 +73,12 @@ Edit `.env` on the server and restart after changes:
 | `INTELLIGENCE_API_URL`                               | API endpoint override for your Intelligence deployment                 |
 | `INTELLIGENCE_GATEWAY_WS_URL`, `INTELLIGENCE_WS_URL` | Gateway WebSocket override (CLI name preferred; legacy name supported) |
 | `OPENAI_API_KEY`, `OPENAI_MODEL`                     | Model credential and model identifier                                  |
-| `OPENAI_BASE_URL`                                    | Compatible model API endpoint                                          |
+| `OPENAI_BASE_URL`                                    | Compatible chat-model API endpoint                                     |
+| `EMBEDDING_API_BASE_URL`, `EMBEDDING_API_KEY`       | Optional server-side EmbeddingGemma-compatible embeddings endpoint    |
+| `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`            | Embedding model ID and supported output size (default 768)             |
 | `OWNER_ID`                                           | Stable identity used for this deployment's conversations               |
+When `EMBEDDING_API_BASE_URL` and `EMBEDDING_API_KEY` are configured, OpenDots exposes a read-only `search_saved_preferences` agent tool. It embeds the task query and saved preferences with the `query` and `document` tasks, then ranks up to eight relevant preferences. The embedding key is used only by the server. This does not replace `OPENAI_BASE_URL` or the chat model. If the embedding API fails, the tool reports a degraded recent-preference fallback rather than claiming semantic retrieval succeeded.
+
 | `DATABASE_PATH`                                      | SQLite file containing pages, workspace and work metadata              |
 | `OWNER_TOKEN`                                        | Application access token; required for external bindings               |
 | `APP_ORIGIN`                                         | Comma-separated exact browser origins for a proxy or custom domain     |
