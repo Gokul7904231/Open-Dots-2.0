@@ -39,10 +39,7 @@ function createFallbackAdapter(
   const origCreate = client.chat.completions.create.bind(
     client.chat.completions,
   );
-  client.chat.completions.create = async function (
-    body: any,
-    options: any,
-  ) {
+  client.chat.completions.create = async function (body: any, options: any) {
     for (let i = 0; i < models.length; i++) {
       try {
         return await origCreate({ ...body, model: models[i] }, options);
@@ -198,7 +195,7 @@ export class DotAgent extends AbstractAgent {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
-                          Authorization: `Bearer ${this.config.browserSecret}`,
+                          Authorization: `***
                         },
                         body: JSON.stringify({ url }),
                         signal: controller.signal,
@@ -335,7 +332,9 @@ export class DotAgent extends AbstractAgent {
             apiKey: this.config.embeddingApiKey,
           });
         const memories =
-          initialSettings.memoryAllowed && dot.memoryAllowed && !memorySearchEnabled
+          initialSettings.memoryAllowed &&
+          dot.memoryAllowed &&
+          !memorySearchEnabled
             ? this.store.memories().map((memory) => memory.text)
             : [];
         if (memorySearchEnabled) {
@@ -351,7 +350,10 @@ export class DotAgent extends AbstractAgent {
                 check();
                 const currentSettings = this.store.settings();
                 const currentDot = this.workspace.dot(dot.id);
-                if (!currentSettings.memoryAllowed || !currentDot?.memoryAllowed) {
+                if (
+                  !currentSettings.memoryAllowed ||
+                  !currentDot?.memoryAllowed
+                ) {
                   throw new Error('Saved preference access is disabled.');
                 }
                 const savedMemories = this.store.memories();
