@@ -30,16 +30,31 @@ const channelError = () => ({
   message:
     'OpenDots could not complete this request. Please check the app and try again.',
 });
+type FallbackAdapterClient = {
+  chat: {
+    completions: {
+      create: (
+        body: Record<string, unknown>,
+        options: unknown,
+      ) => Promise<unknown>;
+    };
+  };
+};
 function createFallbackAdapter(
   models: string[],
   config: Parameters<typeof openaiCompatibleText>[1],
 ) {
   const adapter = openaiCompatibleText(models[0], config);
-  const client = (adapter as any).client;
+  const client = (
+    adapter as unknown as { client: FallbackAdapterClient }
+  ).client;
   const origCreate = client.chat.completions.create.bind(
     client.chat.completions,
   );
-  client.chat.completions.create = async function (body: any, options: any) {
+  client.chat.completions.create = async function (
+    body: Record<string, unknown>,
+    options: unknown,
+  ) {
     for (let i = 0; i < models.length; i++) {
       try {
         return await origCreate({ ...body, model: models[i] }, options);
