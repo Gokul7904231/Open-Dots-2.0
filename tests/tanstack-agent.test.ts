@@ -384,25 +384,30 @@ it('falls back to secondary model when primary model fails', async () => {
     runId: 'run-fb',
     state: {},
     context: [],
-    messages: [
-      { id: 'user', role: 'user', content: 'Say hello.' },
-    ],
+    messages: [{ id: 'user', role: 'user', content: 'Say hello.' }],
     tools: [],
   };
-  const calls: any[] = [];
+  const calls: string[] = [];
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     calls.push(body.model);
     if (body.model === 'primary-failing') {
-      return new Response(JSON.stringify({ error: { message: 'Quota exceeded', code: 429 } }), {
-        status: 429,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({ error: { message: 'Quota exceeded', code: 429 } }),
+        {
+          status: 429,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
     }
     return completion({ content: 'Hello from fallback!' });
   });
   const events = await lastValueFrom(agent.run(input).pipe(toArray()));
-  expect(calls).toEqual(['primary-failing', 'primary-failing', 'secondary-working']);
+  expect(calls).toEqual([
+    'primary-failing',
+    'primary-failing',
+    'secondary-working',
+  ]);
   expect(events).toEqual(
     expect.arrayContaining([
       expect.objectContaining({

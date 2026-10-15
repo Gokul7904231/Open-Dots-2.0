@@ -41,6 +41,10 @@ export interface PlatformConfig extends WebConfig {
   model?: string;
   apiKey?: string;
   baseUrl: string;
+  embeddingApiBaseUrl?: string;
+  embeddingApiKey?: string;
+  embeddingModel?: string;
+  embeddingDimensions?: number;
   computerSupervisorUrl?: string;
   computerSupervisorToken?: string;
   computerToken?: string;
