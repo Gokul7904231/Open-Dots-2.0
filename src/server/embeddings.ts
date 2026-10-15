@@ -39,8 +39,15 @@ function normalizedBaseUrl(config: EmbeddingConfig): string {
   } catch {
     throw new Error('Embedding API base URL must be a valid HTTP(S) URL.');
   }
-  if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost' && parsed.hostname !== '127.0.0.1' && parsed.hostname !== '[::1]') {
-    throw new Error('Embedding API must use HTTPS unless it is accessed over loopback.');
+  if (
+    parsed.protocol !== 'https:' &&
+    parsed.hostname !== 'localhost' &&
+    parsed.hostname !== '127.0.0.1' &&
+    parsed.hostname !== '[::1]'
+  ) {
+    throw new Error(
+      'Embedding API must use HTTPS unless it is accessed over loopback.',
+    );
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new Error('Embedding API base URL must use HTTP(S).');
@@ -51,7 +58,9 @@ function normalizedBaseUrl(config: EmbeddingConfig): string {
 function dimensionsFor(config: EmbeddingConfig): number {
   const dimensions = config.dimensions ?? 768;
   if (!Number.isInteger(dimensions) || !SUPPORTED_DIMENSIONS.has(dimensions)) {
-    throw new Error('Embedding dimensions must be one of 128, 256, 512, or 768.');
+    throw new Error(
+      'Embedding dimensions must be one of 128, 256, 512, or 768.',
+    );
   }
   return dimensions;
 }
@@ -62,14 +71,18 @@ async function requestEmbeddings(
   config: EmbeddingConfig,
   signal: AbortSignal,
 ): Promise<number[][]> {
-  if (!config.apiKey?.trim()) throw new Error('Embedding API key is not configured.');
+  if (!config.apiKey?.trim())
+    throw new Error('Embedding API key is not configured.');
   const baseUrl = normalizedBaseUrl(config);
   const dimensions = dimensionsFor(config);
-  const timeoutSignal = AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
+  const timeoutSignal = AbortSignal.any([
+    signal,
+    AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  ]);
   const response = await fetch(`${baseUrl}/embeddings`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${config.apiKey.trim()}`,
+      Authorization: `***
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -84,10 +97,16 @@ async function requestEmbeddings(
     throw new Error(`Embedding API returned HTTP ${response.status}.`);
   }
   const payload: unknown = await response.json();
-  if (!payload || typeof payload !== 'object' || !Array.isArray((payload as { data?: unknown }).data)) {
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    !Array.isArray((payload as { data?: unknown }).data)
+  ) {
     throw new Error('Embedding API returned an invalid response.');
   }
-  const data = (payload as { data: Array<{ index?: number; embedding?: unknown }> }).data;
+  const data = (
+    payload as { data: Array<{ index?: number; embedding?: unknown }> }
+  ).data;
   if (data.length !== inputs.length) {
     throw new Error('Embedding API returned an unexpected number of vectors.');
   }
@@ -96,7 +115,9 @@ async function requestEmbeddings(
     if (
       !Array.isArray(item.embedding) ||
       item.embedding.length !== dimensions ||
-      !item.embedding.every((value) => typeof value === 'number' && Number.isFinite(value))
+      !item.embedding.every(
+        (value) => typeof value === 'number' && Number.isFinite(value),
+      )
     ) {
       throw new Error('Embedding API returned a malformed vector.');
     }
@@ -140,11 +161,17 @@ export async function retrieveRelevantMemories(
   config: EmbeddingConfig,
   signal: AbortSignal,
 ): Promise<MemoryMatch[]> {
-  if (!embeddingConfigured(config)) throw new Error('Embedding API is not configured.');
+  if (!embeddingConfigured(config))
+    throw new Error('Embedding API is not configured.');
   const cleanedQuery = query.trim();
   if (!cleanedQuery || memories.length === 0) return [];
 
-  const [queryVector] = await requestEmbeddings([cleanedQuery], 'query', config, signal);
+  const [queryVector] = await requestEmbeddings(
+    [cleanedQuery],
+    'query',
+    config,
+    signal,
+  );
   const vectors: Array<number[] | undefined> = memories.map((memory) => {
     const cached = memoryVectorCache.get(memory.id);
     return cached?.text === memory.text ? cached.vector : undefined;
@@ -153,10 +180,19 @@ export async function retrieveRelevantMemories(
     .map((_memory, index) => index)
     .filter((index) => !vectors[index]);
 
-  for (let offset = 0; offset < missingIndices.length; offset += MAX_BATCH_SIZE) {
+  for (
+    let offset = 0;
+    offset < missingIndices.length;
+    offset += MAX_BATCH_SIZE
+  ) {
     const indices = missingIndices.slice(offset, offset + MAX_BATCH_SIZE);
     const batch = indices.map((index) => memories[index].text);
-    const batchVectors = await requestEmbeddings(batch, 'document', config, signal);
+    const batchVectors = await requestEmbeddings(
+      batch,
+      'document',
+      config,
+      signal,
+    );
     indices.forEach((memoryIndex, batchIndex) => {
       vectors[memoryIndex] = batchVectors[batchIndex];
       cacheVector(memories[memoryIndex], batchVectors[batchIndex]);
