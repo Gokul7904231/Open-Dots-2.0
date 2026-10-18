@@ -11,10 +11,15 @@ export function createComputerProvider(
   transport: typeof fetch = fetch,
   deadlineMs = 70000,
 ): ComputerProvider {
-  const selected = config.computerProvider?.trim().toLowerCase() || 'docker-supervisor';
+  const selected =
+    config.computerProvider?.trim().toLowerCase() || 'docker-supervisor';
   switch (selected) {
     case 'docker-supervisor':
-      return new DockerSupervisorComputerProvider(config, transport, deadlineMs);
+      return new DockerSupervisorComputerProvider(
+        config,
+        transport,
+        deadlineMs,
+      );
     default:
       throw new Error(
         `Unsupported COMPUTER_PROVIDER "${selected}". Add and register a ComputerProvider adapter before selecting it.`,
