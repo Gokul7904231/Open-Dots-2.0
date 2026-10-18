@@ -82,7 +82,7 @@ async function requestEmbeddings(
   const response = await fetch(`${baseUrl}/embeddings`, {
     method: 'POST',
     headers: {
-      Authorization: `***
+      Authorization: 'Bearer ' + config.apiKey,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({

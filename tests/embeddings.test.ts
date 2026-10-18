@@ -68,7 +68,7 @@ describe('EmbeddingGemma memory retrieval', () => {
       'https://embeddings.example/v1/embeddings',
     );
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
-      '***',
+      'Bearer ' + config.apiKey,
     );
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
       input: ['Write a technical report'],
