@@ -11,10 +11,7 @@
  * requested Dot; never trust a URL supplied by a Dot or an owner request.
  */
 export type ComputerProviderStatus =
-  | 'running'
-  | 'stopped'
-  | 'starting'
-  | 'failed';
+  'running' | 'stopped' | 'starting' | 'failed';
 
 export interface ComputerProviderState {
   dotId: string;
@@ -29,7 +26,10 @@ export interface ComputerProvider {
   /** True only when this provider has the configuration it needs to provision. */
   readonly configured: boolean;
   /** Inspect a computer without creating or starting it. */
-  get(dotId: string, signal?: AbortSignal): Promise<ComputerProviderState | undefined>;
+  get(
+    dotId: string,
+    signal?: AbortSignal,
+  ): Promise<ComputerProviderState | undefined>;
   /** Ensure the Dot has a computer and return its validated provider state. */
   ensure(dotId: string, signal?: AbortSignal): Promise<ComputerProviderState>;
   /** Stop compute without deleting durable profile/workspace state. */
