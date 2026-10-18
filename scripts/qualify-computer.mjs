@@ -101,6 +101,7 @@ let dotId;
 let originalStatus;
 let originalPermissions;
 let permissionsChanged = false;
+let proofWritten = false;
 let testComputerStarted = false;
 let cleanupRequested = false;
 
@@ -170,8 +171,16 @@ async function run() {
     typeof navigation.text !== 'string' ||
     !navigation.text.includes('Example Domain')
   ) {
+    const diagnostic = {
+      url: typeof navigation.url === 'string' ? navigation.url : null,
+      title: typeof navigation.title === 'string' ? navigation.title : null,
+      textPreview:
+        typeof navigation.text === 'string'
+          ? navigation.text.slice(0, 180)
+          : null,
+    };
     fail(
-      'Browser navigation did not return the expected Example Domain page content.',
+      `Browser navigation did not return the expected Example Domain page content. Safe page diagnostic: ${JSON.stringify(diagnostic)}`,
     );
   }
   logPass('Chromium navigated to a real HTTPS page and returned page text.');
@@ -192,6 +201,7 @@ async function run() {
       'A file written through OpenDots could not be read back with its proof marker.',
     );
   }
+  proofWritten = true;
   logPass('Wrote and read back a per-Dot workspace file.');
 
   let cookieName;
@@ -318,9 +328,11 @@ try {
     console.log(
       'Computer left running with browser/files enabled and shell disabled by request.',
     );
-  } else if (cleanupRequested) {
+  } else if (cleanupRequested && proofWritten) {
     console.log(
       'Cleanup complete. The qualification proof file is intentionally retained for future recovery checks.',
     );
+  } else if (cleanupRequested) {
+    console.log('Cleanup complete. Original permissions restored.');
   }
 }
