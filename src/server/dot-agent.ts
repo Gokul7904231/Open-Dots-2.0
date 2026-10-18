@@ -45,9 +45,8 @@ function createFallbackAdapter(
   config: Parameters<typeof openaiCompatibleText>[1],
 ) {
   const adapter = openaiCompatibleText(models[0], config);
-  const client = (
-    adapter as unknown as { client: FallbackAdapterClient }
-  ).client;
+  const client = (adapter as unknown as { client: FallbackAdapterClient })
+    .client;
   const origCreate = client.chat.completions.create.bind(
     client.chat.completions,
   );
