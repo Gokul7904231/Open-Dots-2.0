@@ -111,13 +111,13 @@ async function run() {
   console.log(`Dot: ${dot.name ?? 'selected Dot'} (${dotId})`);
   console.log(`Base URL: ${baseUrl.origin}`);
 
+  permissionsChanged = true;
   await patchPermissions(dotId, {
     enabled: true,
     browser: true,
     files: true,
     shell: false,
   });
-  permissionsChanged = true;
   logPass('Enabled browser and workspace-file permissions; shell remains disabled.');
 
   const started = await start(dotId);
