@@ -9,7 +9,10 @@ import {
 } from '../shared/computer-types.js';
 import type { WorkspaceStore } from './workspace.js';
 import type { PlatformConfig } from './platform-config.js';
-import type { ComputerProvider, ComputerProviderState } from './computer-provider.js';
+import type {
+  ComputerProvider,
+  ComputerProviderState,
+} from './computer-provider.js';
 import { createComputerProvider } from './computer-provider-factory.js';
 const controlSchema = z.object({
   holder: z.enum(['bot', 'human']),
@@ -28,7 +31,8 @@ export class ComputerService {
     private deadlineMs = 70000,
     provider?: ComputerProvider,
   ) {
-    this.provider = provider ?? createComputerProvider(config, transport, deadlineMs);
+    this.provider =
+      provider ?? createComputerProvider(config, transport, deadlineMs);
   }
   get configured() {
     return !!this.config.computerToken?.trim() && this.provider.configured;
@@ -134,8 +138,11 @@ export class ComputerService {
     if (!state.endpoint)
       throw new Error('Computer provider did not return a computer endpoint.');
     const url = new URL(state.endpoint);
+    const secureProtocol =
+      url.protocol === 'https:' ||
+      (this.provider.id === 'docker-supervisor' && url.protocol === 'http:');
     if (
-      !['http:', 'https:'].includes(url.protocol) ||
+      !secureProtocol ||
       url.username ||
       url.password ||
       url.pathname !== '/' ||
@@ -179,7 +186,7 @@ export class ComputerService {
         ...base,
         state: 'unavailable',
         error:
-          'Computer service is unavailable. Check the supervisor configuration and connection.',
+          'Computer service is unavailable. Check the provider configuration and connection.',
       };
     }
   }
