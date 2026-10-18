@@ -60,6 +60,12 @@ Revoking a capability cancels the application's active request and prevents subs
 
 The template uses standard Docker container isolation; containers share the host kernel. Shell access permits programs and network access inside the container and can read that Dot's own browser profile. Run this on infrastructure appropriate for that trust level. `COMPUTER_RUNTIME=runsc` can select an already-installed gVisor runtime; the template does not install it or claim stronger isolation by default. It does not configure a restrictive network-egress policy.
 
+## Live qualification
+
+Run the live lifecycle proof against the currently configured provider with `npm run qualify:computer`. It tests real HTTPS browser navigation, workspace writes, a provider stop/start, workspace persistence, and (by default) an HTTPS cookie across restart. Read [Live Computer Qualification](COMPUTER_QUALIFICATION.md) for prerequisites and safe cleanup behavior.
+
+This is a runtime qualification tool, not an uptime/free-tier guarantee. It only proves the exact provider configuration and resources that were tested.
+
 ## Verify and troubleshoot
 
 Create two Dots and enable the capabilities being tested. Write a file in the first computer, then verify that the second cannot list it. Stop/start the first and verify the file persists. Test a browser session across a restart, takeover and handback, disabled permissions, and pause behavior. Confirm that computer tools fail clearly if the service is unavailable.
