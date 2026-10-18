@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createHmac } from 'node:crypto';
 import { WorkspaceStore } from '../src/server/workspace.js';
 import { ComputerService } from '../src/server/computer-service.js';
+import type { ComputerProvider } from '../src/server/computer-provider.js';
 import { computerInputs } from '../src/shared/computer-types.js';
 import { computerTools } from '../src/server/computer-tools.js';
 const stores: WorkspaceStore[] = [];
@@ -304,4 +305,43 @@ it('gives agents a safe recovery instruction for stale browser or control confli
     f.service.action(f.id, 'navigate', { url: 'https://example.com' }, 'agent'),
   ).rejects.not.toThrow(f.config.computerToken);
   expect(f.workspace.computers.audit(f.id)[0].outcome).toBe('failed');
+});
+
+it('uses a provider-neutral adapter with HTTPS endpoints and no Docker supervisor calls', async () => {
+  const f = fixture();
+  let running = false;
+  const endpoint = `https://computer-${f.id}.provider.example`;
+  const provider: ComputerProvider = {
+    id: 'fixture-remote',
+    configured: true,
+    get: vi.fn(async (dotId) => ({
+      dotId,
+      status: running ? 'running' as const : 'stopped' as const,
+      ...(running ? { endpoint } : {}),
+    })),
+    ensure: vi.fn(async (dotId) => {
+      running = true;
+      return { dotId, status: 'running' as const, endpoint };
+    }),
+    stop: vi.fn(async () => {
+      running = false;
+    }),
+  };
+  const service = new ComputerService(
+    f.workspace,
+    f.config,
+    () => false,
+    f.transport,
+    1000,
+    provider,
+  );
+
+  expect((await service.start()).state).toBe('running');
+  await expect(
+    service.action(f.id, 'files_read', { path: 'note.txt' }),
+  ).resolves.toEqual({ text: 'result' });
+  expect((await service.stop()).state).toBe('stopped');
+  expect(provider.ensure).toHaveBeenCalledWith(f.id);
+  expect(provider.stop).toHaveBeenCalledWith(f.id);
+  expect(f.calls.every((call) => !call.url.endsWith('/computers'))).toBe(true);
 });
