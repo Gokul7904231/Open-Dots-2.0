@@ -167,9 +167,10 @@ async function run() {
   });
   if (
     typeof navigation.url !== 'string' ||
-    !navigation.url.startsWith('https://example.com') ||
+    !navigation.url.startsWith('https://example.com/') ||
+    navigation.title !== 'Example Domain' ||
     typeof navigation.text !== 'string' ||
-    !navigation.text.includes('Example Domain')
+    navigation.text.trim().length === 0
   ) {
     const diagnostic = {
       url: typeof navigation.url === 'string' ? navigation.url : null,
@@ -180,7 +181,7 @@ async function run() {
           : null,
     };
     fail(
-      `Browser navigation did not return the expected Example Domain page content. Safe page diagnostic: ${JSON.stringify(diagnostic)}`,
+      `Browser navigation did not return the expected URL, title, and readable page text. Safe page diagnostic: ${JSON.stringify(diagnostic)}`,
     );
   }
   logPass('Chromium navigated to a real HTTPS page and returned page text.');
