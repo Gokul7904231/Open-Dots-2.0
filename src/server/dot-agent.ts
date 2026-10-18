@@ -210,7 +210,7 @@ export class DotAgent extends AbstractAgent {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
-                          Authorization: `***
+                          Authorization: 'Bearer ' + this.config.browserSecret,
                         },
                         body: JSON.stringify({ url }),
                         signal: controller.signal,
