@@ -252,6 +252,11 @@ async function run() {
   }
   logPass('Restarted the same Dot computer.');
 
+  // A fresh browser process invalidates refs and requires an explicit new snapshot
+  // before the next browser action. Without this, OpenBot correctly returns HTTP 409.
+  await action(dotId, 'snapshot', {});
+  logPass('Refreshed the browser snapshot after restart.');
+
   const recoveredFile = await action(dotId, 'files_read', { path: proofPath });
   if (
     typeof recoveredFile.text !== 'string' ||
