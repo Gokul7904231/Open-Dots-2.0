@@ -86,7 +86,9 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
         size += value.length;
         if (size > 4_000_000) {
           await reader.cancel();
-          throw new Error('Computer provider response exceeded its size limit.');
+          throw new Error(
+            'Computer provider response exceeded its size limit.',
+          );
         }
         chunks.push(value);
       }
@@ -100,12 +102,17 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
       return JSON.parse(text);
     } catch (error) {
       if (combined.aborted)
-        throw new Error('Computer provider request was cancelled or timed out.', {
-          cause: error,
-        });
+        throw new Error(
+          'Computer provider request was cancelled or timed out.',
+          {
+            cause: error,
+          },
+        );
       if (
         error instanceof Error &&
-        /^Computer provider (returned HTTP|response exceeded)/.test(error.message)
+        /^Computer provider (returned HTTP|response exceeded)/.test(
+          error.message,
+        )
       )
         throw error;
       throw new Error(
@@ -166,7 +173,9 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
     const listing = computerListingSchema.parse(
       await this.json('/computers', undefined, signal),
     );
-    const state = listing.computers.find((computer) => computer.botId === dotId);
+    const state = listing.computers.find(
+      (computer) => computer.botId === dotId,
+    );
     return state ? this.normalize(state, dotId) : undefined;
   }
 
@@ -175,11 +184,7 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
     signal?: AbortSignal,
   ): Promise<ComputerProviderState> {
     this.requireDotId(dotId);
-    const state = await this.json(
-      `/computers/${dotId}/ensure`,
-      {},
-      signal,
-    );
+    const state = await this.json(`/computers/${dotId}/ensure`, {}, signal);
     return this.normalize(state, dotId);
   }
 
