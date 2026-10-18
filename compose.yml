@@ -36,6 +36,7 @@ services:
       PARALLEL_API_KEY: ${PARALLEL_API_KEY:-}
       BROWSER_URL: http://browser:4311
       BROWSER_SECRET: ${BROWSER_SECRET:-}
+      COMPUTER_PROVIDER: ${COMPUTER_PROVIDER:-docker-supervisor}
     volumes:
       - opendots-data:/data
     networks:
