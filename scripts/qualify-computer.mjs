@@ -210,7 +210,7 @@ async function run() {
   if (cookieProbe) {
     cookieName = `odq_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
     cookieValue = randomUUID().replaceAll('-', '');
-    const cookie = `${cookieName}=${cookieValue}; Path=/; Secure; SameSite=Lax`;
+    const cookie = `${cookieName}=${cookieValue}; Path=/; Max-Age=3600; Secure; SameSite=Lax`;
     const setter = new URL('https://httpbin.org/response-headers');
     setter.searchParams.set('Set-Cookie', cookie);
     const cookieSetup = await action(dotId, 'navigate', {
