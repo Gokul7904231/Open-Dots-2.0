@@ -4,7 +4,6 @@ OpenDots connects each specialist to its own container through [OpenBot](https:/
 
 The app exposes selected computer tools to the same Dot agent used by web chat, Slack, scheduled work, and voice's compute delegation. Browser, workspace-file, and shell permissions are saved per Dot and checked by the server. They start disabled. No action falls back to your host's shell or files when the computer service is unavailable.
 
-
 ## Provider architecture
 
 OpenDots separates its computer API from the infrastructure used to provision computers. Set `COMPUTER_PROVIDER=docker-supervisor` to use the current OpenBot supervisor and Docker Engine adapter. The provider contract lives in `src/server/computer-provider.ts`; adapters and provider selection live in `src/server/docker-supervisor-provider.ts` and `src/server/computer-provider-factory.ts`.
