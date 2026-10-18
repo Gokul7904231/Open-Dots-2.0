@@ -15,10 +15,6 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - name: Temporary provider formatting diagnostic
-        run: |
-          npx prettier --write --ignore-unknown src/server/computer-provider-factory.ts src/server/computer-provider.ts src/server/computer-service.ts src/server/docker-supervisor-provider.ts src/server/platform-config.ts src/server/index.ts src/server/dot-agent.ts src/server/embeddings.ts tests/computer.test.ts tests/embeddings.test.ts docs/COMPUTERS.md docs/COMPUTER_PROVIDERS.md .env.example
-          git diff --color=never -- src/server/computer-provider-factory.ts src/server/computer-provider.ts src/server/computer-service.ts src/server/docker-supervisor-provider.ts src/server/platform-config.ts src/server/index.ts src/server/dot-agent.ts src/server/embeddings.ts tests/computer.test.ts tests/embeddings.test.ts docs/COMPUTERS.md docs/COMPUTER_PROVIDERS.md .env.example
       - run: npm run check-format
       - run: npm run lint
       - run: npm run typecheck
