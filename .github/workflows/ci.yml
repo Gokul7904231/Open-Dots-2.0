@@ -15,10 +15,6 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - name: Temporary qualification formatting diagnostic
-        run: |
-          npx prettier --write scripts/qualify-computer.mjs package.json docs/COMPUTERS.md docs/COMPUTER_QUALIFICATION.md
-          git diff --color=never -- scripts/qualify-computer.mjs package.json docs/COMPUTERS.md docs/COMPUTER_QUALIFICATION.md
       - run: npm run check-format
       - run: npm run lint
       - run: npm run typecheck
