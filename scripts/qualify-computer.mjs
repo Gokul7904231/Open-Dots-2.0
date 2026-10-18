@@ -224,8 +224,20 @@ async function run() {
         'Browser profile probe could not reach the HTTPS cookie test endpoint (httpbin.org).',
       );
     }
+    const cookiePreflight = await action(dotId, 'navigate', {
+      url: 'https://httpbin.org/cookies',
+    });
+    if (
+      typeof cookiePreflight.text !== 'string' ||
+      !cookiePreflight.text.includes(cookieName) ||
+      !cookiePreflight.text.includes(cookieValue)
+    ) {
+      fail(
+        'Cookie probe setup failed before restart: httpbin.org did not echo the unique cookie. No persistence conclusion can be drawn.',
+      );
+    }
     logPass(
-      'Set a unique HTTPS browser-profile cookie before the restart test.',
+      'Verified the unique HTTPS browser-profile cookie exists before restart.',
     );
   } else {
     console.log(
