@@ -314,12 +314,12 @@ it('uses a provider-neutral adapter with HTTPS endpoints and no Docker superviso
   const provider: ComputerProvider = {
     id: 'fixture-remote',
     configured: true,
-    get: vi.fn(async (dotId) => ({
+    get: vi.fn(async (dotId: string) => ({
       dotId,
-      status: running ? 'running' as const : 'stopped' as const,
+      status: running ? ('running' as const) : ('stopped' as const),
       ...(running ? { endpoint } : {}),
     })),
-    ensure: vi.fn(async (dotId) => {
+    ensure: vi.fn(async (dotId: string) => {
       running = true;
       return { dotId, status: 'running' as const, endpoint };
     }),
@@ -336,11 +336,11 @@ it('uses a provider-neutral adapter with HTTPS endpoints and no Docker superviso
     provider,
   );
 
-  expect((await service.start()).state).toBe('running');
+  expect((await service.start(f.id)).state).toBe('running');
   await expect(
     service.action(f.id, 'files_read', { path: 'note.txt' }),
   ).resolves.toEqual({ text: 'result' });
-  expect((await service.stop()).state).toBe('stopped');
+  expect((await service.stop(f.id)).state).toBe('stopped');
   expect(provider.ensure).toHaveBeenCalledWith(f.id);
   expect(provider.stop).toHaveBeenCalledWith(f.id);
   expect(f.calls.every((call) => !call.url.endsWith('/computers'))).toBe(true);
