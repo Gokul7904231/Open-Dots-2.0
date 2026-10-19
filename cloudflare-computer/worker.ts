@@ -174,7 +174,9 @@ export class DotComputer extends DurableObject<Env> {
     mode: 'interactive' | 'maintenance',
   ): Promise<void> {
     if (this.stopping) {
-      throw new Error('The Dot computer is stopping; retry after the lifecycle operation.');
+      throw new Error(
+        'The Dot computer is stopping; retry after the lifecycle operation.',
+      );
     }
     if (this.starting) {
       await this.starting;
@@ -257,7 +259,9 @@ export class DotComputer extends DurableObject<Env> {
   }
   private async stopAndSnapshot(dotId: string): Promise<DotState> {
     if (this.stopping) {
-      throw new Error('A Dot computer lifecycle operation is already in progress.');
+      throw new Error(
+        'A Dot computer lifecycle operation is already in progress.',
+      );
     }
     // Block new computer requests while draining the in-flight set, so an idle alarm
     // or explicit stop cannot snapshot/destroy a browser while an action is still running.
@@ -278,7 +282,9 @@ export class DotComputer extends DurableObject<Env> {
       const drainDeadline = Date.now() + 65_000;
       while (this.activeComputerRequests > 0) {
         if (Date.now() >= drainDeadline) {
-          throw new Error('Timed out while waiting for active computer requests to finish.');
+          throw new Error(
+            'Timed out while waiting for active computer requests to finish.',
+          );
         }
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
@@ -366,7 +372,10 @@ export class DotComputer extends DurableObject<Env> {
     if (!computerTokenMatches(request, this.env, dotId))
       return json({ error: 'Not authorized.' }, 401);
     if (this.stopping) {
-      return json({ error: 'The Dot computer is stopping; retry shortly.' }, 503);
+      return json(
+        { error: 'The Dot computer is stopping; retry shortly.' },
+        503,
+      );
     }
     const container = this.container();
     if (!container.running) {
