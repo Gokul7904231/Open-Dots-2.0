@@ -189,7 +189,8 @@ export class DaytonaComputerProvider implements ComputerProvider {
       if (!response.ok)
         throw new Error(`Daytona request failed with HTTP ${response.status}.`);
       if (!response.body) {
-        if (response.status === 204 || response.status === 205) return undefined;
+        if (response.status === 204 || response.status === 205)
+          return undefined;
         throw new Error('Daytona returned an empty response.');
       }
       const reader = response.body.getReader();
@@ -405,7 +406,9 @@ export class DaytonaComputerProvider implements ComputerProvider {
     } catch (error) {
       // A concurrent ensure may have won the deterministic-name creation race.
       signal?.throwIfAborted();
-      const existing = await this.findSandbox(dotId, signal).catch(() => undefined);
+      const existing = await this.findSandbox(dotId, signal).catch(
+        () => undefined,
+      );
       if (existing) return existing;
       throw error;
     }
