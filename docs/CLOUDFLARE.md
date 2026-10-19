@@ -13,15 +13,15 @@ This is the first Cloudflare deployment slice for OpenDots. It adds a Workers AP
 
 Endpoints:
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| GET | `/api/health` | Unauthenticated health/config check (does not reveal secrets). |
-| GET/PATCH | `/api/settings` | Read or change the name, pause, research and memory switches. |
-| GET/POST | `/api/memories` | List or add a memory. |
-| PUT/DELETE | `/api/memories/:id` | Edit or delete a memory. |
-| POST | `/api/research` | Enqueue a durable research workflow; returns HTTP 202 and a run ID. |
-| GET | `/api/research` | List the most recent 50 research runs. |
-| GET | `/api/research/:id` | Read a run's status, sources, result and safe error message. |
+| Method     | Endpoint            | Purpose                                                             |
+| ---------- | ------------------- | ------------------------------------------------------------------- |
+| GET        | `/api/health`       | Unauthenticated health/config check (does not reveal secrets).      |
+| GET/PATCH  | `/api/settings`     | Read or change the name, pause, research and memory switches.       |
+| GET/POST   | `/api/memories`     | List or add a memory.                                               |
+| PUT/DELETE | `/api/memories/:id` | Edit or delete a memory.                                            |
+| POST       | `/api/research`     | Enqueue a durable research workflow; returns HTTP 202 and a run ID. |
+| GET        | `/api/research`     | List the most recent 50 research runs.                              |
+| GET        | `/api/research/:id` | Read a run's status, sources, result and safe error message.        |
 
 For search-only runs, set `synthesize: false`. For a synthesized answer, configure `OPENAI_API_KEY` and `OPENAI_MODEL`. `PARALLEL_API_KEY` is optional if the provider still permits anonymous/light use for your account; configure it for authenticated usage.
 
