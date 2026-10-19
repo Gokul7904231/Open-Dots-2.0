@@ -49,3 +49,22 @@ A returned state includes the same `dotId`, a normalized lifecycle status, and a
 ## Current boundary and known scope
 
 The Docker adapter is the only registered provider in this change. The contract is designed to accept remote HTTPS endpoints, but no remote provider adapter has been implemented or qualified yet. The computer action protocol and per-Dot credential derivation are unchanged.
+
+
+## Experimental Daytona provider
+
+The Daytona adapter is a **qualification candidate**, not a declaration that Daytona is permanently free or production-qualified. Daytona usage is billed against the account's applicable compute/storage allowance and rates; a promotional credit balance is not an always-free guarantee. Check the account's current billing and quotas before provisioning. The repository does not hold or need a Daytona API key.
+
+To try it:
+
+1. Generate a Daytona API key and set it as `DAYTONA_API_KEY` only in the server's secret environment.
+2. Set `COMPUTER_PROVIDER=daytona`, and retain a strong `COMPUTER_TOKEN` (24+ random characters). Do not set `COMPUTER_SUPERVISOR_TOKEN` for this provider.
+3. Adjust the Daytona CPU/memory/disk settings only after checking their current cost and free credits.
+4. Start one test Dot and run `npm run qualify:computer` against the actual deployed OpenDots API. The test intentionally uses a real external page and verifies workspace and browser-profile persistence across a provider stop/start.
+5. Keep shell access disabled unless the Dot specifically needs it. Review sandbox usage and delete the candidate after testing if you do not intend to keep paying for its disk.
+
+The adapter creates one Daytona sandbox per Dot, builds the pinned OpenBot computer runtime, keeps the sandbox private, and calls its computer through a short-lived, port-scoped signed preview URL. It does not forward the Daytona API key into the sandbox. The sandbox receives only the Dot-specific HMAC computer token expected by OpenDots. Daytona's own sandbox tool API key and signed-preview mechanism remain provider dependencies.
+
+The first sandbox for a Dot builds the browser runtime and can take several minutes and consume meaningful credits. The default resource request is 1 CPU, 2 GiB memory, and 8 GiB disk; tune `DAYTONA_COMPUTER_CPU`, `DAYTONA_COMPUTER_MEMORY_GIB`, and `DAYTONA_COMPUTER_DISK_GIB` within the provider's supported limits. `autoStopInterval=0` disables Daytona's inactivity stop, so explicitly stop computers when they are not needed. Daytona's sandbox persistence is not a promise of unlimited retention, zero cost, or guaranteed availability.
+
+**Not yet live-qualified:** this adapter is validated by deterministic tests only until it has been run with your own Daytona API key against a real sandbox. Passing repository CI does not satisfy the live qualification gate.
