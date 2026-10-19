@@ -32,4 +32,4 @@ ENV WORKSPACE_DIR=/workspace
 ENV PROFILES_DIR=/profiles
 ENV PORT=4100
 EXPOSE 4100
-CMD ["bun", "src/index.ts"]`;
+CMD ["bash", "-lc", "sleep infinity"]`;
