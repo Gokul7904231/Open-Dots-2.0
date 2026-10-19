@@ -257,7 +257,7 @@ export class DotComputer extends DurableObject<Env> {
       return { dotId, status: 'starting' };
     }
   }
-  private async stopAndSnapshot(dotId: string): Promise<DotState> {
+  private async stopAndSnapshot(\n    dotId: string,\n    onlyIfIdle = false,\n  ): Promise<DotState> {
     if (this.stopping) {
       throw new Error(
         'A Dot computer lifecycle operation is already in progress.',
@@ -287,6 +287,18 @@ export class DotComputer extends DurableObject<Env> {
           );
         }
         await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+
+      // An idle alarm can race with a request that already entered the computer
+      // gateway. Re-read after draining; if recent activity was recorded, leave
+      // the container running and schedule the next idle check.
+      if (onlyIfIdle) {
+        const lastActivity = (await storage.get<number>('lastActivityAt')) ?? 0;
+        const nextIdleCheck = lastActivity + IDLE_SNAPSHOT_MS;
+        if (Date.now() < nextIdleCheck) {
+          await storage.setAlarm(nextIdleCheck);
+          return { dotId, status: 'running' };
+        }
       }
 
       // Ask OpenBot to close Chromium cleanly so profile/database writes are flushed
@@ -425,7 +437,7 @@ export class DotComputer extends DurableObject<Env> {
       const dotId = await storage.get<string>('dotId');
       if (dotId) {
         try {
-          await this.stopAndSnapshot(dotId);
+          await this.stopAndSnapshot(dotId, true);
         } catch {
           await storage.setAlarm(now + 60_000);
         }
