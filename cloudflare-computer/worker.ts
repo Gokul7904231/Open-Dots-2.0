@@ -137,6 +137,8 @@ async function readiness(container: ContainerLike): Promise<boolean> {
 
 export class DotComputer extends DurableObject<Env> {
   private starting?: Promise<void>;
+  private stopping = false;
+  private activeComputerRequests = 0;
   private context(): ContextLike {
     return this.ctx as unknown as ContextLike;
   }
@@ -171,14 +173,17 @@ export class DotComputer extends DurableObject<Env> {
     dotId: string,
     mode: 'interactive' | 'maintenance',
   ): Promise<void> {
+    if (this.stopping) {
+      throw new Error('The Dot computer is stopping; retry after the lifecycle operation.');
+    }
+    if (this.starting) {
+      await this.starting;
+      return;
+    }
     const container = this.container();
     if (container.running) {
       await this.configureInactivity(container);
       if (mode === 'interactive') await this.scheduleIdleSnapshot();
-      return;
-    }
-    if (this.starting) {
-      await this.starting;
       return;
     }
     this.starting = (async () => {
@@ -251,28 +256,62 @@ export class DotComputer extends DurableObject<Env> {
     }
   }
   private async stopAndSnapshot(dotId: string): Promise<DotState> {
-    const container = this.container();
-    const storage = storageFrom(this.ctx);
-    if (!container.running) {
-      const snapshot = await this.savedSnapshot();
-      if (snapshot) {
-        const createdAt =
-          (await storage.get<number>('snapshotCreatedAt')) ?? Date.now();
-        await storage.setAlarm(createdAt + SNAPSHOT_RENEW_MS);
-      }
-      return { dotId, status: 'stopped' };
+    if (this.stopping) {
+      throw new Error('A Dot computer lifecycle operation is already in progress.');
     }
-    const snapshot = await container.snapshotContainer({
-      name: `opendots-${dotId}-${Date.now()}`,
-    });
-    const createdAt = Date.now();
-    await storage.put('snapshot', snapshot);
-    await storage.put('snapshotCreatedAt', createdAt);
-    await container.destroy(
-      'OpenDots computer stopped after a filesystem snapshot.',
-    );
-    await storage.setAlarm(createdAt + SNAPSHOT_RENEW_MS);
-    return { dotId, status: 'stopped', snapshotCreatedAt: createdAt };
+    // Block new computer requests while draining the in-flight set, so an idle alarm
+    // or explicit stop cannot snapshot/destroy a browser while an action is still running.
+    this.stopping = true;
+    try {
+      const container = this.container();
+      const storage = storageFrom(this.ctx);
+      if (!container.running) {
+        const snapshot = await this.savedSnapshot();
+        if (snapshot) {
+          const createdAt =
+            (await storage.get<number>('snapshotCreatedAt')) ?? Date.now();
+          await storage.setAlarm(createdAt + SNAPSHOT_RENEW_MS);
+        }
+        return { dotId, status: 'stopped' };
+      }
+
+      const drainDeadline = Date.now() + 65_000;
+      while (this.activeComputerRequests > 0) {
+        if (Date.now() >= drainDeadline) {
+          throw new Error('Timed out while waiting for active computer requests to finish.');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+
+      // Ask OpenBot to close Chromium cleanly so profile/database writes are flushed
+      // before the filesystem snapshot is taken.
+      const stoppedBrowser = await container.getTcpPort(COMPUTER_PORT).fetch(
+        new Request('http://container/computers/stop', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${dotToken(this.env.COMPUTER_TOKEN, dotId)}`,
+            'x-openbot-bot-id': dotId,
+          },
+        }),
+      );
+      if (!stoppedBrowser.ok) {
+        throw new Error('OpenBot did not confirm a clean browser stop.');
+      }
+
+      const snapshot = await container.snapshotContainer({
+        name: `opendots-${dotId}-${Date.now()}`,
+      });
+      const createdAt = Date.now();
+      await storage.put('snapshot', snapshot);
+      await storage.put('snapshotCreatedAt', createdAt);
+      await container.destroy(
+        'OpenDots computer stopped after a clean browser shutdown and filesystem snapshot.',
+      );
+      await storage.setAlarm(createdAt + SNAPSHOT_RENEW_MS);
+      return { dotId, status: 'stopped', snapshotCreatedAt: createdAt };
+    } finally {
+      this.stopping = false;
+    }
   }
   private async routeInternal(request: Request, url: URL): Promise<Response> {
     const dotId = request.headers.get('x-opendots-dot-id');
@@ -326,6 +365,9 @@ export class DotComputer extends DurableObject<Env> {
     }
     if (!computerTokenMatches(request, this.env, dotId))
       return json({ error: 'Not authorized.' }, 401);
+    if (this.stopping) {
+      return json({ error: 'The Dot computer is stopping; retry shortly.' }, 503);
+    }
     const container = this.container();
     if (!container.running) {
       return json(
@@ -336,14 +378,18 @@ export class DotComputer extends DurableObject<Env> {
         503,
       );
     }
-    await this.scheduleIdleSnapshot();
-    await this.configureInactivity(container);
-    const target = new URL(request.url);
-    const forwarded = new Request(
-      `http://container${target.pathname}${target.search}`,
-      request,
-    );
+
+    // Increment before the first await after checking the lifecycle flag. A stop
+    // operation drains this count before asking OpenBot to close Chromium.
+    this.activeComputerRequests += 1;
     try {
+      await this.scheduleIdleSnapshot();
+      await this.configureInactivity(container);
+      const target = new URL(request.url);
+      const forwarded = new Request(
+        `http://container${target.pathname}${target.search}`,
+        request,
+      );
       return await container.getTcpPort(COMPUTER_PORT).fetch(forwarded);
     } catch {
       return json(
@@ -352,6 +398,8 @@ export class DotComputer extends DurableObject<Env> {
         },
         502,
       );
+    } finally {
+      this.activeComputerRequests -= 1;
     }
   }
   async alarm(): Promise<void> {
