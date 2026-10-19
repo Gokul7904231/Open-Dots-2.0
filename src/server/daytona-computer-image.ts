@@ -9,7 +9,7 @@ FROM oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf100
 
 FROM ubuntu:24.04
 ENV BUN_INSTALL=/usr/local
-ENV PATH="/usr/local/bin:${PATH}"
+ENV PATH="/usr/local/bin:\${PATH}"
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY --from=node-toolchain /usr/local /usr/local
