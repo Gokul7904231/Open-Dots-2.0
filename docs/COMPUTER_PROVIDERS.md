@@ -50,7 +50,6 @@ A returned state includes the same `dotId`, a normalized lifecycle status, and a
 
 The Docker adapter is the only registered provider in this change. The contract is designed to accept remote HTTPS endpoints, but no remote provider adapter has been implemented or qualified yet. The computer action protocol and per-Dot credential derivation are unchanged.
 
-
 ## Experimental Daytona provider
 
 The Daytona adapter is a **qualification candidate**, not a declaration that Daytona is permanently free or production-qualified. Daytona usage is billed against the account's applicable compute/storage allowance and rates; a promotional credit balance is not an always-free guarantee. Check the account's current billing and quotas before provisioning. The repository does not hold or need a Daytona API key.

@@ -55,7 +55,9 @@ const config: PlatformConfig = {
   daytonaToolboxBaseUrl: process.env.DAYTONA_TOOLBOX_BASE_URL,
   daytonaComputerNamespace: process.env.DAYTONA_COMPUTER_NAMESPACE,
   daytonaComputerCpu: Number(process.env.DAYTONA_COMPUTER_CPU ?? 1),
-  daytonaComputerMemoryGiB: Number(process.env.DAYTONA_COMPUTER_MEMORY_GIB ?? 2),
+  daytonaComputerMemoryGiB: Number(
+    process.env.DAYTONA_COMPUTER_MEMORY_GIB ?? 2,
+  ),
   daytonaComputerDiskGiB: Number(process.env.DAYTONA_COMPUTER_DISK_GIB ?? 8),
   voiceKey: process.env.VOICE_API_KEY,
   voiceModel: process.env.VOICE_MODEL,
