@@ -6,7 +6,7 @@ The existing Node OpenDots server still enforces the Dot's browser/files/shell p
 
 ## Persistence and lifecycle
 
-Cloudflare container disks are ephemeral by default. The Durable Object snapshots the container's writable filesystem before an explicit stop or a five-minute idle stop. On the next start, it restores that snapshot. The snapshot includes the computer workspace and browser profile directories.
+Cloudflare container disks are ephemeral by default. The Durable Object blocks new computer calls and drains in-flight actions before stopping. It then calls OpenBot's `/computers/stop` endpoint to close Chromium and flush profile state, snapshots the container's writable filesystem, and stops the container. On the next start, it restores that snapshot. The snapshot includes the computer workspace and browser profile directories.
 
 Durable Object Container snapshots do not include memory or running processes; the pinned computer entrypoint runs again after restore. The worker schedules a 25-day snapshot renewal when a Dot is stopped, because Cloudflare documents a 30-day snapshot TTL. The renewal restores and re-snapshots the filesystem, then stops the container again.
 
