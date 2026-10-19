@@ -3,16 +3,16 @@ name: Cloudflare API checks
 on:
   pull_request:
     paths:
-      - "cloudflare/**"
-      - "docs/CLOUDFLARE.md"
-      - "package.json"
+      - 'cloudflare/**'
+      - 'docs/CLOUDFLARE.md'
+      - 'package.json'
       - '.github/workflows/cloudflare-check.yml'
   push:
     branches: [main]
     paths:
-      - "cloudflare/**"
-      - "docs/CLOUDFLARE.md"
-      - "package.json"
+      - 'cloudflare/**'
+      - 'docs/CLOUDFLARE.md'
+      - 'package.json'
       - '.github/workflows/cloudflare-check.yml'
 
 permissions:
@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: '24'
           cache: npm
       - run: npm ci
       - name: Validate Worker bundle
