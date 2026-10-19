@@ -50,6 +50,13 @@ export interface PlatformConfig extends WebConfig {
   computerSupervisorToken?: string;
   computerToken?: string;
   computerNamespace?: string;
+  daytonaApiKey?: string;
+  daytonaApiBaseUrl?: string;
+  daytonaToolboxBaseUrl?: string;
+  daytonaComputerNamespace?: string;
+  daytonaComputerCpu?: number;
+  daytonaComputerMemoryGiB?: number;
+  daytonaComputerDiskGiB?: number;
   browserUrl?: string;
   browserSecret?: string;
   voiceKey?: string;
