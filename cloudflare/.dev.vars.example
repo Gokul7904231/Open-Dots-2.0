@@ -1,0 +1,7 @@
+# Copy this file to cloudflare/.dev.vars for local Wrangler development.
+# Never commit cloudflare/.dev.vars or put real credentials in wrangler.jsonc.
+OWNER_TOKEN=replace-with-a-long-random-secret
+PARALLEL_API_KEY=
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=
