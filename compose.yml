@@ -37,6 +37,13 @@ services:
       BROWSER_URL: http://browser:4311
       BROWSER_SECRET: ${BROWSER_SECRET:-}
       COMPUTER_PROVIDER: ${COMPUTER_PROVIDER:-docker-supervisor}
+      DAYTONA_API_KEY: ${DAYTONA_API_KEY:-}
+      DAYTONA_API_BASE_URL: ${DAYTONA_API_BASE_URL:-https://app.daytona.io/api}
+      DAYTONA_TOOLBOX_BASE_URL: ${DAYTONA_TOOLBOX_BASE_URL:-https://proxy.app.daytona.io/toolbox}
+      DAYTONA_COMPUTER_NAMESPACE: ${DAYTONA_COMPUTER_NAMESPACE:-opendots}
+      DAYTONA_COMPUTER_CPU: ${DAYTONA_COMPUTER_CPU:-1}
+      DAYTONA_COMPUTER_MEMORY_GIB: ${DAYTONA_COMPUTER_MEMORY_GIB:-2}
+      DAYTONA_COMPUTER_DISK_GIB: ${DAYTONA_COMPUTER_DISK_GIB:-8}
     volumes:
       - opendots-data:/data
     networks:
