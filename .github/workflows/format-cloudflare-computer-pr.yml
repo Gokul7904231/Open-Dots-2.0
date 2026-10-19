@@ -46,4 +46,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/server/cloudflare-computer-provider.ts src/server/computer-provider-factory.ts src/server/platform-config.ts src/server/index.ts tests/cloudflare-computer-provider.test.ts docs/CLOUDFLARE_COMPUTERS.md docs/COMPUTER_PROVIDERS.md docs/COMPUTERS.md package.json .env.example compose.yml cloudflare-computer/worker.ts cloudflare-computer/wrangler.jsonc cloudflare-computer/README.md .github/workflows/cloudflare-computer-check.yml
           git commit -m "style(cloudflare): format computer runtime implementation"
+          git fetch origin "${GITHUB_HEAD_REF}"
+          git rebase "origin/${GITHUB_HEAD_REF}"
           git push origin "HEAD:${GITHUB_HEAD_REF}"
