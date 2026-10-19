@@ -1,10 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import type { PlatformConfig } from '../src/server/platform-config.js';
 import { DaytonaComputerProvider } from '../src/server/daytona-computer-provider.js';
 
 const token = 'test-daytona-api-key';
 const masterComputerToken = 'a-master-computer-token-long-enough-for-tests';
+function sandboxName(dotId: string) {
+  return 'od-' + createHash('sha256').update(`opendots:${dotId}`).digest('hex').slice(0, 24);
+}
 
 function makeResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -33,11 +36,11 @@ afterEach(() => {
 
 it('uses a private, port-scoped signed preview URL and never asks for a public sandbox', async () => {
   const calls: { url: string; init?: RequestInit }[] = [];
-  const name = 'od-test-sandbox-name';
+  const name = sandboxName('dot-1');
   const response: typeof fetch = async (input, init) => {
     const url = String(input);
     calls.push({ url, init });
-    if (url.endsWith('/sandbox/od-test-sandbox-name')) {
+    if (url.endsWith(`/sandbox/${name}`)) {
       return makeResponse({ id: 'sandbox-id', name, state: 'started', labels: {
         'opendots-namespace': 'opendots',
         'opendots-dot-id': 'dot-1',
@@ -61,11 +64,11 @@ it('uses a private, port-scoped signed preview URL and never asks for a public s
   expect(calls.some((call) => call.url.endsWith('/ports/4100/signed-preview-url?expiresInSeconds=3600'))).toBe(true);
   const createCall = calls.find((call) => call.url.endsWith('/sandbox') && call.init?.method === 'POST');
   expect(createCall).toBeUndefined();
-  expect(JSON.parse(String(calls[0].init?.headers ? '{}' : '{}'))).toEqual({});
+  expect(calls[0].init?.headers).toBeDefined();
 });
 
 it('creates a sandbox privately, derives the same per-Dot HMAC token as OpenDots, and starts its computer', async () => {
-  const name = 'od-test';
+  const name = sandboxName('dot-1');
   const calls: { url: string; init?: RequestInit }[] = [];
   let created = false;
   const response: typeof fetch = async (input, init) => {
@@ -109,7 +112,9 @@ it('creates a sandbox privately, derives the same per-Dot HMAC token as OpenDots
   expect(result.status).toBe('running');
   expect(result.endpoint).toBe('https://4100-test-token.proxy.daytona.work');
   expect(calls.some((call) => call.url.endsWith('/sandbox') && call.init?.method === 'POST')).toBe(true);
-  expect(calls.every((call) => !String(call.init?.headers).includes(token))).toBe(true);
+  const computerLaunch = calls.find((call) => call.url.endsWith('/process/execute'));
+  expect(computerLaunch).toBeDefined();
+  expect(String(computerLaunch?.init?.body)).not.toContain(token);
 });
 
 it('rejects a foreign sandbox name or malformed signed endpoint', async () => {
