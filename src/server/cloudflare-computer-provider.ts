@@ -60,13 +60,14 @@ export class CloudflareContainerComputerProvider implements ComputerProvider {
   ): Promise<unknown> {
     if (!this.configured)
       throw new Error('Cloudflare computer provider is not configured.');
+    const origin = this.origin();
     const controller = new AbortController();
     const combined = signal
       ? AbortSignal.any([signal, controller.signal])
       : controller.signal;
     const timeout = setTimeout(() => controller.abort(), this.requestTimeoutMs);
     try {
-      const response = await this.transport(`${this.origin()}${path}`, {
+      const response = await this.transport(`${origin}${path}`, {
         method,
         headers: {
           Accept: 'application/json',
