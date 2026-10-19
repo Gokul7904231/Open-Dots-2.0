@@ -108,7 +108,7 @@ it('creates a sandbox privately, derives the same per-Dot HMAC token as OpenDots
       created = true;
       const body = JSON.parse(String(init.body));
       expect(body.public).toBe(false);
-      expect(body.autoStopInterval).toBe(0);
+      expect(body.autoStopInterval).toBe(15);
       expect(body.buildInfo.dockerfileContent).toContain(
         'b6932d31a8d6e7896c15139dfc27a6c6911deb27',
       );
