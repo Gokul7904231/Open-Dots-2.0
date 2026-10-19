@@ -281,6 +281,12 @@ async function run() {
   logPass('Workspace file survived stop/start.');
 
   if (cookieProbe) {
+    // A restarted OpenBot browser starts a new run and invalidates element refs.
+    // Refresh the snapshot through the public OpenDots API before the next navigation,
+    // following the computer service's explicit recovery contract.
+    await action(dotId, 'snapshot', {});
+    logPass('Refreshed browser snapshot after computer restart.');
+
     const cookieCheck = await action(dotId, 'navigate', {
       url: 'https://httpbin.org/cookies',
     });
