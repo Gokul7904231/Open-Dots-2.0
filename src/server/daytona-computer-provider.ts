@@ -359,7 +359,10 @@ export class DaytonaComputerProvider implements ComputerProvider {
     }
   }
 
-  private async createSandbox(\n    dotId: string,\n    signal?: AbortSignal,\n  ): Promise<DaytonaSandbox> {
+  private async createSandbox(
+    dotId: string,
+    signal?: AbortSignal,
+  ): Promise<DaytonaSandbox> {
     const name = this.dotName(dotId);
     const cpu = numberInRange(this.config.daytonaComputerCpu, 1, 1, 8);
     const memory = numberInRange(
@@ -376,7 +379,7 @@ export class DaytonaComputerProvider implements ComputerProvider {
       memory,
       disk,
       public: false,
-      autoStopInterval: 0,
+      autoStopInterval: 15,
       autoArchiveInterval: 0,
       autoDeleteInterval: 0,
       labels: {
@@ -393,13 +396,16 @@ export class DaytonaComputerProvider implements ComputerProvider {
           body: JSON.stringify(body),
         },
         15 * 60 * 1000,
+        false,
+        signal,
       );
       const sandbox = nestedSandbox(value);
       this.assertOwned(sandbox, name, dotId);
       return sandbox;
     } catch (error) {
       // A concurrent ensure may have won the deterministic-name creation race.
-      signal?.throwIfAborted();\n      const existing = await this.findSandbox(dotId, signal).catch(() => undefined);
+      signal?.throwIfAborted();
+      const existing = await this.findSandbox(dotId, signal).catch(() => undefined);
       if (existing) return existing;
       throw error;
     }
@@ -411,7 +417,11 @@ export class DaytonaComputerProvider implements ComputerProvider {
       .digest('hex');
   }
 
-  private async launchComputer(\n    sandboxId: string,\n    dotId: string,\n    signal?: AbortSignal,\n  ) {
+  private async launchComputer(
+    sandboxId: string,
+    dotId: string,
+    signal?: AbortSignal,
+  ) {
     const command = `if ! bun -e 'const r = await fetch("http://127.0.0.1:4100/health").catch(() => null); process.exit(r?.ok ? 0 : 1)'; then nohup bun src/index.ts >/tmp/opendots-computer.log 2>&1 </dev/null & fi`;
     const env = {
       COMPUTER_TOKEN: this.computerToken(dotId),
@@ -434,6 +444,8 @@ export class DaytonaComputerProvider implements ComputerProvider {
         }),
       },
       40000,
+      false,
+      signal,
     );
     if (
       isObject(value) &&
@@ -448,8 +460,8 @@ export class DaytonaComputerProvider implements ComputerProvider {
     signal?: AbortSignal,
   ): Promise<ComputerProviderState> {
     signal?.throwIfAborted();
-    let sandbox = await this.findSandbox(dotId);
-    if (!sandbox) sandbox = await this.createSandbox(dotId);
+    let sandbox = await this.findSandbox(dotId, signal);
+    if (!sandbox) sandbox = await this.createSandbox(dotId, signal);
     signal?.throwIfAborted();
 
     if (lifecycle(sandbox.state || '') !== 'running') {
@@ -457,6 +469,8 @@ export class DaytonaComputerProvider implements ComputerProvider {
         `/sandbox/${encodeURIComponent(sandbox.id)}/start`,
         { method: 'POST' },
         120000,
+        false,
+        signal,
       );
     }
 
@@ -487,10 +501,5 @@ export class DaytonaComputerProvider implements ComputerProvider {
       false,
       signal,
     );
-  }
-}
-}/stop`, {
-      method: 'POST',
-    });
   }
 }
