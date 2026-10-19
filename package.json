@@ -17,7 +17,12 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests vite.config.ts",
     "format": "prettier --write src tests *.json *.ts *.js index.html public .github Dockerfile \"compose*.yml\" deployment README.md docs .env.example --ignore-unknown",
-    "check-format": "prettier --check src tests *.json *.ts *.js index.html public .github Dockerfile \"compose*.yml\" deployment README.md docs .env.example --ignore-unknown"
+    "check-format": "prettier --check src tests *.json *.ts *.js index.html public .github Dockerfile \"compose*.yml\" deployment README.md docs .env.example --ignore-unknown",
+    "cf:dev": "npx --yes wrangler dev --config cloudflare/wrangler.jsonc",
+    "cf:deploy": "npx --yes wrangler deploy --config cloudflare/wrangler.jsonc",
+    "cf:d1:create": "npx --yes wrangler d1 create opendots-db --config cloudflare/wrangler.jsonc --update-config",
+    "cf:migrate:local": "npx --yes wrangler d1 migrations apply opendots-db --local --config cloudflare/wrangler.jsonc",
+    "cf:migrate:remote": "npx --yes wrangler d1 migrations apply opendots-db --remote --config cloudflare/wrangler.jsonc"
   },
   "keywords": [],
   "author": "Atai Barkai",
