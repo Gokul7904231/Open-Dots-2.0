@@ -75,7 +75,7 @@ it('creates a sandbox privately, derives the same per-Dot HMAC token as OpenDots
   const response: typeof fetch = async (input, init) => {
     const url = String(input);
     calls.push({ url, init });
-    if (url.endsWith('/sandbox/od-test')) {
+    if (url.endsWith(`/sandbox/${name}`)) {
       return created
         ? makeResponse({ id: 'sandbox-id', name, state: 'started', labels: {
             'opendots-namespace': 'opendots', 'opendots-dot-id': 'dot-1',
