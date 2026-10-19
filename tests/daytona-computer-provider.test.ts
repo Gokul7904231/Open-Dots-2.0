@@ -71,6 +71,7 @@ it('creates a sandbox privately, derives the same per-Dot HMAC token as OpenDots
   const name = sandboxName('dot-1');
   const calls: { url: string; init?: RequestInit }[] = [];
   let created = false;
+  let launched = false;
   const response: typeof fetch = async (input, init) => {
     const url = String(input);
     calls.push({ url, init });
@@ -94,9 +95,10 @@ it('creates a sandbox privately, derives the same per-Dot HMAC token as OpenDots
       return makeResponse({ url: 'https://4100-test-token.proxy.daytona.work' });
     }
     if (url === 'https://4100-test-token.proxy.daytona.work/health') {
-      return makeResponse({ ok: true });
+      return launched ? makeResponse({ ok: true }) : makeResponse({ ok: false }, 503);
     }
     if (url.endsWith('/process/execute')) {
+      launched = true;
       const body = JSON.parse(String(init?.body));
       const expected = createHmac('sha256', masterComputerToken)
         .update('opendots-computer:dot-1').digest('hex');
