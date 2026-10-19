@@ -36,7 +36,7 @@ jobs:
       - run: npm ci
       - name: Apply repository formatting
         run: |
-          npx prettier --write src/server/cloudflare-computer-provider.ts src/server/computer-provider-factory.ts src/server/platform-config.ts src/server/index.ts tests/cloudflare-computer-provider.test.ts docs/CLOUDFLARE_COMPUTERS.md docs/COMPUTER_PROVIDERS.md docs/COMPUTERS.md package.json .env.example compose.yml cloudflare-computer/worker.ts cloudflare-computer/wrangler.jsonc cloudflare-computer/README.md .github/workflows/cloudflare-computer-check.yml
+          npx prettier --write src/server/cloudflare-computer-provider.ts src/server/computer-provider-factory.ts src/server/platform-config.ts src/server/index.ts tests/cloudflare-computer-provider.test.ts docs/CLOUDFLARE_COMPUTERS.md docs/COMPUTER_PROVIDERS.md docs/COMPUTERS.md package.json compose.yml cloudflare-computer/worker.ts cloudflare-computer/wrangler.jsonc cloudflare-computer/README.md .github/workflows/cloudflare-computer-check.yml
       - name: Commit formatted changes
         shell: bash
         run: |
