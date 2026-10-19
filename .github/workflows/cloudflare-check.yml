@@ -6,14 +6,14 @@ on:
       - "cloudflare/**"
       - "docs/CLOUDFLARE.md"
       - "package.json"
-      - ".github/workflows/cloudflare-check.yml"
+      - '.github/workflows/cloudflare-check.yml'
   push:
     branches: [main]
     paths:
       - "cloudflare/**"
       - "docs/CLOUDFLARE.md"
       - "package.json"
-      - ".github/workflows/cloudflare-check.yml"
+      - '.github/workflows/cloudflare-check.yml'
 
 permissions:
   contents: read
