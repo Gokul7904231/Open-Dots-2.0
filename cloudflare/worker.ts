@@ -115,7 +115,13 @@ function errorMessage(error: unknown): string {
   if (error instanceof z.ZodError) {
     return error.issues[0]?.message ?? 'Request validation failed.';
   }
-  if (error instanceof Error && error.message.startsWith('Parallel ')) {
+  if (
+    error instanceof Error &&
+    (error.message.startsWith('Parallel ') ||
+      error.message.startsWith('Synthesis needs ') ||
+      error.message.startsWith('Model provider request failed ') ||
+      error.message === 'Model provider returned no research text.')
+  ) {
     return error.message;
   }
   return 'The request could not be completed. Check provider configuration and try again.';
@@ -229,12 +235,21 @@ async function createResearch(
   request: Request,
   env: Env,
 ): Promise<Response> {
-  if (!(await getSettings(env)).researchAllowed) {
-    return json({ error: 'Research is disabled in Settings.' }, 403);
+  const settings = await getSettings(env);
+  if (settings.paused || !settings.researchAllowed) {
+    return json({ error: settings.paused ? 'OpenDots is paused in Settings.' : 'Research is disabled in Settings.' }, 403);
   }
 
   const parsed = researchInputSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return json({ error: errorMessage(parsed.error) }, 400);
+  if (
+    parsed.data.synthesize &&
+    (!env.OPENAI_API_KEY?.trim() || !env.OPENAI_MODEL?.trim())
+  ) {
+    return json({
+      error: 'Synthesis is not configured. Set OPENAI_API_KEY and OPENAI_MODEL, or send synthesize: false for search-only research.',
+    }, 503);
+  }
 
   const id = crypto.randomUUID();
   const now = Date.now();
