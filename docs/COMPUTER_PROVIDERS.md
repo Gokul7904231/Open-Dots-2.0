@@ -48,7 +48,7 @@ A returned state includes the same `dotId`, a normalized lifecycle status, and a
 
 ## Current boundary and known scope
 
-The Docker adapter is the only registered provider in this change. The contract is designed to accept remote HTTPS endpoints, but no remote provider adapter has been implemented or qualified yet. The computer action protocol and per-Dot credential derivation are unchanged.
+The `docker-supervisor` adapter remains the default. This branch registers `daytona` behind `COMPUTER_PROVIDER=daytona`; it is experimental and not live-qualified. The computer action protocol and per-Dot credential derivation are unchanged.
 
 ## Experimental Daytona provider
 
@@ -64,6 +64,6 @@ To try it:
 
 The adapter creates one Daytona sandbox per Dot, builds the pinned OpenBot computer runtime, keeps the sandbox private, and calls its computer through a short-lived, port-scoped signed preview URL. It does not forward the Daytona API key into the sandbox. The sandbox receives only the Dot-specific HMAC computer token expected by OpenDots. Daytona's own sandbox tool API key and signed-preview mechanism remain provider dependencies.
 
-The first sandbox for a Dot builds the browser runtime and can take several minutes and consume meaningful credits. The default resource request is 1 CPU, 2 GiB memory, and 8 GiB disk; tune `DAYTONA_COMPUTER_CPU`, `DAYTONA_COMPUTER_MEMORY_GIB`, and `DAYTONA_COMPUTER_DISK_GIB` within the provider's supported limits. `autoStopInterval=0` disables Daytona's inactivity stop, so explicitly stop computers when they are not needed. Daytona's sandbox persistence is not a promise of unlimited retention, zero cost, or guaranteed availability.
+The first sandbox for a Dot builds the browser runtime and can take several minutes and consume meaningful credits. The default resource request is 1 CPU, 2 GiB memory, and 8 GiB disk; tune `DAYTONA_COMPUTER_CPU`, `DAYTONA_COMPUTER_MEMORY_GIB`, and `DAYTONA_COMPUTER_DISK_GIB` within the provider's supported limits. `autoStopInterval=15` stops idle compute after 15 minutes to limit surprise charges. The files and browser profile are expected to persist through that stop; the live qualification test must verify this on your account. Daytona's sandbox persistence is not a promise of unlimited retention, zero cost, or guaranteed availability.
 
 **Not yet live-qualified:** this adapter is validated by deterministic tests only until it has been run with your own Daytona API key against a real sandbox. Passing repository CI does not satisfy the live qualification gate.
