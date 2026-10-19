@@ -121,15 +121,17 @@ function stateResponse(state: DotState): Response {
 }
 async function readiness(container: ContainerLike): Promise<boolean> {
   for (let attempt = 0; attempt < READY_ATTEMPTS; attempt++) {
-    if (!container.running) return false;
-    try {
-      const response = await container
-        .getTcpPort(COMPUTER_PORT)
-        .fetch(new Request('http://container/health', { method: 'GET' }));
-      if (response.ok) return true;
-    } catch {
-      // A newly started container may not have bound port 4100 yet.
+    if (container.running) {
+      try {
+        const response = await container
+          .getTcpPort(COMPUTER_PORT)
+          .fetch(new Request('http://container/health', { method: 'GET' }));
+        if (response.ok) return true;
+      } catch {
+        // A newly started container may not have bound port 4100 yet.
+      }
     }
+    // start() can return before the container is reported as running.
     await new Promise((resolve) => setTimeout(resolve, READY_DELAY_MS));
   }
   return false;
