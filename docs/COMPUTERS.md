@@ -8,7 +8,11 @@ The app exposes selected computer tools to the same Dot agent used by web chat, 
 
 OpenDots separates its computer API from the infrastructure used to provision computers. Set `COMPUTER_PROVIDER=docker-supervisor` to use the current OpenBot supervisor and Docker Engine adapter. The provider contract lives in `src/server/computer-provider.ts`; adapters and provider selection live in `src/server/docker-supervisor-provider.ts` and `src/server/computer-provider-factory.ts`.
 
-See [Computer Provider Contract](COMPUTER_PROVIDERS.md) before adding a cloud container or micro-VM adapter. An adapter must validate provider-owned computer identity and endpoints, preserve each Dot's browser profile and workspace on stop/recovery, and never expose provider credentials to a computer. Only adapters registered in the provider factory can be selected. A provider setting is not evidence that the provider is configured or that its runtime is qualified.
+See [Computer Provider Contract](COMPUTER_PROVIDERS.md) for the provider requirements. The local Docker adapter remains the development default. The experimental Cloudflare Containers adapter is the chosen remote target; it needs a separately deployed Worker, the matching server/Worker secrets, and a successful live qualification run before production use. Provider selection alone is not evidence that the runtime is configured or qualified.
+
+## Use the Cloudflare computer runtime
+
+Follow [Cloudflare Computer Setup](CLOUDFLARE_COMPUTERS.md) to deploy the dedicated Worker and configure the OpenDots server. Select `COMPUTER_PROVIDER=cloudflare-containers` only after the Worker is deployed. Cloudflare Containers require the Workers Paid plan and usage charges; this is not a Workers Free-tier computer. Run `npm run qualify:computer` against the actual deployed OpenDots app before relying on the provider.
 
 ## Start services for local development
 

@@ -1,7 +1,7 @@
 import type { PlatformConfig } from './platform-config.js';
 import type { ComputerProvider } from './computer-provider.js';
 import { DockerSupervisorComputerProvider } from './docker-supervisor-provider.js';
-import { DaytonaComputerProvider } from './daytona-computer-provider.js';
+import { CloudflareContainerComputerProvider } from './cloudflare-computer-provider.js';
 
 /**
  * Resolve the selected provider in one place. Register future cloud/container/
@@ -21,8 +21,12 @@ export function createComputerProvider(
         transport,
         deadlineMs,
       );
-    case 'daytona':
-      return new DaytonaComputerProvider(config, transport, deadlineMs);
+    case 'cloudflare-containers':
+      return new CloudflareContainerComputerProvider(
+        config,
+        transport,
+        deadlineMs,
+      );
     default:
       throw new Error(
         `Unsupported COMPUTER_PROVIDER "${selected}". Add and register a ComputerProvider adapter before selecting it.`,
