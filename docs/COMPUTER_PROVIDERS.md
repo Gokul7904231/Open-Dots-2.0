@@ -46,24 +46,12 @@ A returned state includes the same `dotId`, a normalized lifecycle status, and a
 5. Select it with `COMPUTER_PROVIDER=<registered-id>`. The factory fails closed for unknown provider names.
 6. Record the provider's free/paid quota, sleep/expiry behavior, persistence guarantees, isolation model, regional eligibility, and end-to-end qualification separately. Implementing an adapter alone does not qualify a provider for production.
 
-## Current boundary and known scope
+## Cloudflare Containers provider
 
-The `docker-supervisor` adapter remains the default. This branch registers `daytona` behind `COMPUTER_PROVIDER=daytona`; it is experimental and not live-qualified. The computer action protocol and per-Dot credential derivation are unchanged.
+The target remote provider is `cloudflare-containers`, implemented in `cloudflare-computer/`. It maps each Dot to one Durable Object and one Linux Container running the pinned OpenBot computer service. The OpenDots Node server uses `CLOUDFLARE_COMPUTER_API_URL` and `CLOUDFLARE_COMPUTER_PROVIDER_TOKEN`; the Cloudflare Worker uses a separate provider token and the same stable `COMPUTER_TOKEN` master secret as OpenDots.
 
-## Experimental Daytona provider
+The Worker checks the existing per-Dot HMAC credential before proxying computer actions. On explicit stop or idle timeout, it snapshots the container filesystem and stops compute; it restores the snapshot on the next start and refreshes dormant snapshot TTL every 25 days. The default remains `docker-supervisor` for local development until a live Cloudflare deployment passes qualification.
 
-The Daytona adapter is a **qualification candidate**, not a declaration that Daytona is permanently free or production-qualified. Daytona usage is billed against the account's applicable compute/storage allowance and rates; a promotional credit balance is not an always-free guarantee. Check the account's current billing and quotas before provisioning. The repository does not hold or need a Daytona API key.
+Cloudflare Containers are not available on Workers Free. The documented minimum is Workers Paid at $5/month plus metered compute, memory, disk, Durable Object, and egress usage. The selected `standard-1` instance has 0.5 vCPU, 4 GiB memory, and 8 GB disk. The monthly included memory allowance (25 GiB-hours) covers about 6.25 hours at that instance size. Review the current account plan and usage before provisioning.
 
-To try it:
-
-1. Generate a Daytona API key and set it as `DAYTONA_API_KEY` only in the server's secret environment.
-2. Set `COMPUTER_PROVIDER=daytona`, and retain a strong `COMPUTER_TOKEN` (24+ random characters). Do not set `COMPUTER_SUPERVISOR_TOKEN` for this provider.
-3. Adjust the Daytona CPU/memory/disk settings only after checking their current cost and free credits.
-4. Start one test Dot and run `npm run qualify:computer` against the actual deployed OpenDots API. The test intentionally uses a real external page and verifies workspace and browser-profile persistence across a provider stop/start.
-5. Keep shell access disabled unless the Dot specifically needs it. Review sandbox usage and delete the candidate after testing if you do not intend to keep paying for its disk.
-
-The adapter creates one Daytona sandbox per Dot, builds the pinned OpenBot computer runtime, keeps the sandbox private, and calls its computer through a short-lived, port-scoped signed preview URL. It does not forward the Daytona API key into the sandbox. The sandbox receives only the Dot-specific HMAC computer token expected by OpenDots. Daytona's own sandbox tool API key and signed-preview mechanism remain provider dependencies.
-
-The first sandbox for a Dot builds the browser runtime and can take several minutes and consume meaningful credits. The default resource request is 1 CPU, 2 GiB memory, and 8 GiB disk; tune `DAYTONA_COMPUTER_CPU`, `DAYTONA_COMPUTER_MEMORY_GIB`, and `DAYTONA_COMPUTER_DISK_GIB` within the provider's supported limits. `autoStopInterval=15` stops idle compute after 15 minutes to limit surprise charges. The files and browser profile are expected to persist through that stop; the live qualification test must verify this on your account. Daytona's sandbox persistence is not a promise of unlimited retention, zero cost, or guaranteed availability.
-
-**Not yet live-qualified:** this adapter is validated by deterministic tests only until it has been run with your own Daytona API key against a real sandbox. Passing repository CI does not satisfy the live qualification gate.
+See [Cloudflare computer setup](CLOUDFLARE_COMPUTERS.md) and the official [Containers pricing](https://developers.cloudflare.com/containers/platform/pricing/), [instance limits](https://developers.cloudflare.com/containers/platform/limits/), and [snapshot documentation](https://developers.cloudflare.com/containers/guides/snapshots/).
