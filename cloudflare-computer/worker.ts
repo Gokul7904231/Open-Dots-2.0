@@ -257,7 +257,10 @@ export class DotComputer extends DurableObject<Env> {
       return { dotId, status: 'starting' };
     }
   }
-  private async stopAndSnapshot(\n    dotId: string,\n    onlyIfIdle = false,\n  ): Promise<DotState> {
+  private async stopAndSnapshot(
+    dotId: string,
+    onlyIfIdle = false,
+  ): Promise<DotState> {
     if (this.stopping) {
       throw new Error(
         'A Dot computer lifecycle operation is already in progress.',
