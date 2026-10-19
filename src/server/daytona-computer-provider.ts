@@ -161,11 +161,16 @@ export class DaytonaComputerProvider implements ComputerProvider {
     init: RequestInit = {},
     timeoutMs = this.requestTimeoutMs,
     allowNotFound = false,
+    signal?: AbortSignal,
   ): Promise<unknown | undefined> {
     if (!this.configured)
       throw new Error('Daytona provider is not configured.');
+    signal?.throwIfAborted();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const requestSignal = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
     try {
       const headers = new Headers(init.headers);
       headers.set(
@@ -178,13 +183,15 @@ export class DaytonaComputerProvider implements ComputerProvider {
         ...init,
         redirect: 'error',
         headers,
-        signal: controller.signal,
+        signal: requestSignal,
       });
       if (allowNotFound && response.status === 404) return undefined;
       if (!response.ok)
         throw new Error(`Daytona request failed with HTTP ${response.status}.`);
-      if (!response.body)
+      if (!response.body) {
+        if (response.status === 204 || response.status === 205) return undefined;
         throw new Error('Daytona returned an empty response.');
+      }
       const reader = response.body.getReader();
       const chunks: Uint8Array[] = [];
       let size = 0;
@@ -205,8 +212,13 @@ export class DaytonaComputerProvider implements ComputerProvider {
         throw new Error('Daytona returned malformed JSON.');
       }
     } catch (error) {
-      if (controller.signal.aborted)
-        throw new Error('Daytona request timed out.', { cause: error });
+      if (requestSignal.aborted)
+        throw new Error(
+          signal?.aborted
+            ? 'Daytona request was cancelled.'
+            : 'Daytona request timed out.',
+          { cause: error },
+        );
       if (
         error instanceof Error &&
         /^Daytona (request failed|returned|response exceeded)/.test(
@@ -228,12 +240,14 @@ export class DaytonaComputerProvider implements ComputerProvider {
     init: RequestInit = {},
     timeoutMs = this.requestTimeoutMs,
     allowNotFound = false,
+    signal?: AbortSignal,
   ) {
     return this.jsonRequest(
       `${this.apiBase()}${path}`,
       init,
       timeoutMs,
       allowNotFound,
+      signal,
     );
   }
 
@@ -257,6 +271,7 @@ export class DaytonaComputerProvider implements ComputerProvider {
 
   private async findSandbox(
     dotId: string,
+    signal?: AbortSignal,
   ): Promise<DaytonaSandbox | undefined> {
     const name = this.dotName(dotId);
     const value = await this.api(
@@ -264,6 +279,7 @@ export class DaytonaComputerProvider implements ComputerProvider {
       {},
       this.requestTimeoutMs,
       true,
+      signal,
     );
     if (value === undefined) return undefined;
     const sandbox = nestedSandbox(value);
@@ -271,9 +287,16 @@ export class DaytonaComputerProvider implements ComputerProvider {
     return sandbox;
   }
 
-  private async signedPreview(sandboxId: string): Promise<DaytonaPreview> {
+  private async signedPreview(
+    sandboxId: string,
+    signal?: AbortSignal,
+  ): Promise<DaytonaPreview> {
     const value = await this.api(
       `/sandbox/${encodeURIComponent(sandboxId)}/ports/4100/signed-preview-url?expiresInSeconds=3600`,
+      {},
+      this.requestTimeoutMs,
+      false,
+      signal,
     );
     if (!isObject(value) || typeof value.url !== 'string')
       throw new Error('Daytona did not return a signed computer preview URL.');
@@ -290,20 +313,27 @@ export class DaytonaComputerProvider implements ComputerProvider {
     return { url: url.origin };
   }
 
-  private async isHealthy(endpoint: string): Promise<boolean> {
+  private async isHealthy(
+    endpoint: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
+    const requestSignal = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
     try {
       const response = await this.transport(
         new URL('/health', endpoint).toString(),
         {
           method: 'GET',
           redirect: 'error',
-          signal: controller.signal,
+          signal: requestSignal,
         },
       );
       return response.ok;
     } catch {
+      signal?.throwIfAborted();
       return false;
     } finally {
       clearTimeout(timeout);
@@ -312,23 +342,24 @@ export class DaytonaComputerProvider implements ComputerProvider {
 
   async get(
     dotId: string,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
   ): Promise<ComputerProviderState | undefined> {
-    const sandbox = await this.findSandbox(dotId);
+    const sandbox = await this.findSandbox(dotId, signal);
     if (!sandbox) return undefined;
     const status = lifecycle(sandbox.state || '');
     if (status !== 'running') return { dotId, status };
     try {
-      const preview = await this.signedPreview(sandbox.id);
-      if (!(await this.isHealthy(preview.url)))
+      const preview = await this.signedPreview(sandbox.id, signal);
+      if (!(await this.isHealthy(preview.url, signal)))
         return { dotId, status: 'starting' };
       return { dotId, status: 'running', endpoint: preview.url };
     } catch {
+      signal?.throwIfAborted();
       return { dotId, status: 'starting' };
     }
   }
 
-  private async createSandbox(dotId: string): Promise<DaytonaSandbox> {
+  private async createSandbox(\n    dotId: string,\n    signal?: AbortSignal,\n  ): Promise<DaytonaSandbox> {
     const name = this.dotName(dotId);
     const cpu = numberInRange(this.config.daytonaComputerCpu, 1, 1, 8);
     const memory = numberInRange(
@@ -368,7 +399,7 @@ export class DaytonaComputerProvider implements ComputerProvider {
       return sandbox;
     } catch (error) {
       // A concurrent ensure may have won the deterministic-name creation race.
-      const existing = await this.findSandbox(dotId).catch(() => undefined);
+      signal?.throwIfAborted();\n      const existing = await this.findSandbox(dotId, signal).catch(() => undefined);
       if (existing) return existing;
       throw error;
     }
@@ -380,7 +411,7 @@ export class DaytonaComputerProvider implements ComputerProvider {
       .digest('hex');
   }
 
-  private async launchComputer(sandboxId: string, dotId: string) {
+  private async launchComputer(\n    sandboxId: string,\n    dotId: string,\n    signal?: AbortSignal,\n  ) {
     const command = `if ! bun -e 'const r = await fetch("http://127.0.0.1:4100/health").catch(() => null); process.exit(r?.ok ? 0 : 1)'; then nohup bun src/index.ts >/tmp/opendots-computer.log 2>&1 </dev/null & fi`;
     const env = {
       COMPUTER_TOKEN: this.computerToken(dotId),
@@ -430,13 +461,13 @@ export class DaytonaComputerProvider implements ComputerProvider {
     }
 
     // If the service is already healthy, don't accidentally launch a second browser server.
-    const existing = await this.get(dotId);
+    const existing = await this.get(dotId, signal);
     if (existing?.status === 'running' && existing.endpoint) return existing;
 
-    await this.launchComputer(sandbox.id, dotId);
+    await this.launchComputer(sandbox.id, dotId, signal);
     for (let attempt = 0; attempt < 30; attempt++) {
       signal?.throwIfAborted();
-      const state = await this.get(dotId);
+      const state = await this.get(dotId, signal);
       if (state?.status === 'running' && state.endpoint) return state;
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
@@ -447,9 +478,18 @@ export class DaytonaComputerProvider implements ComputerProvider {
 
   async stop(dotId: string, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
-    const sandbox = await this.findSandbox(dotId);
+    const sandbox = await this.findSandbox(dotId, signal);
     if (!sandbox) return;
-    await this.api(`/sandbox/${encodeURIComponent(sandbox.id)}/stop`, {
+    await this.api(
+      `/sandbox/${encodeURIComponent(sandbox.id)}/stop`,
+      { method: 'POST' },
+      this.requestTimeoutMs,
+      false,
+      signal,
+    );
+  }
+}
+}/stop`, {
       method: 'POST',
     });
   }
