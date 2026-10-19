@@ -119,7 +119,7 @@ export class DaytonaComputerProvider implements ComputerProvider {
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(dotId))
       throw new Error('Invalid Dot identifier for Daytona.');
     const digest = createHash('sha256')
-      .update(`${this.namespace()}: ${dotId}`.replace(': ', ':'))
+      .update(`${this.namespace()}:${dotId}`)
       .digest('hex')
       .slice(0, 24);
     return `od-${digest}`;
@@ -135,15 +135,14 @@ export class DaytonaComputerProvider implements ComputerProvider {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
+      const headers = new Headers(init.headers);
+      headers.set('Authorization', `Bearer ${this.config.daytonaApiKey!.trim()}`);
+      headers.set('Accept', 'application/json');
+      if (init.body) headers.set('Content-Type', 'application/json');
       const response = await this.transport(url, {
         ...init,
         redirect: 'error',
-        headers: {
-          Authorization: `Bearer ${this.config.daytonaApiKey!.trim()}`,
-          Accept: 'application/json',
-          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-          ...init.headers,
-        },
+        headers,
         signal: controller.signal,
       });
       if (allowNotFound && response.status === 404) return undefined;
