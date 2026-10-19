@@ -3,6 +3,7 @@
   "name": "opendots-computers",
   "main": "worker.ts",
   "compatibility_date": "2026-10-19",
+  "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   "containers": [
     {
