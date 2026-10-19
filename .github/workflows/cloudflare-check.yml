@@ -1,0 +1,80 @@
+name: Cloudflare API checks
+
+on:
+  pull_request:
+    paths:
+      - "cloudflare/**"
+      - "docs/CLOUDFLARE.md"
+      - "package.json"
+      - ".github/workflows/cloudflare-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/**"
+      - "docs/CLOUDFLARE.md"
+      - "package.json"
+      - ".github/workflows/cloudflare-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  worker-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Validate Worker bundle
+        run: npx --yes wrangler deploy --dry-run --config cloudflare/wrangler.jsonc
+      - name: Apply D1 migrations locally
+        run: npx --yes wrangler d1 migrations apply opendots-db --local --config cloudflare/wrangler.jsonc
+      - name: Exercise authenticated API and D1 persistence
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' 'OWNER_TOKEN=ci-test-owner-token-that-is-long-enough' > cloudflare/.dev.vars
+          npx --yes wrangler dev --local --ip 127.0.0.1 --port 8787 --config cloudflare/wrangler.jsonc > /tmp/opendots-wrangler.log 2>&1 &
+          worker_pid=$!
+          cleanup() {
+            kill "$worker_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 40); do
+            if curl --silent --fail http://127.0.0.1:8787/api/health >/tmp/opendots-health.json; then
+              break
+            fi
+            sleep 1
+          done
+          grep -q '"ok":true' /tmp/opendots-health.json
+
+          unauth_status=$(curl --silent --output /tmp/opendots-unauth.json --write-out '%{http_code}' http://127.0.0.1:8787/api/memories)
+          test "$unauth_status" = "401"
+
+          created=$(curl --silent --fail --request POST http://127.0.0.1:8787/api/memories \
+            --header 'Authorization: Bearer ci-test-owner-token-that-is-long-enough' \
+            --header 'Content-Type: application/json' \
+            --data '{"text":"Cloudflare D1 persistence check"}')
+          echo "$created" | grep -q 'Cloudflare D1 persistence check'
+
+          listed=$(curl --silent --fail http://127.0.0.1:8787/api/memories \
+            --header 'Authorization: Bearer ci-test-owner-token-that-is-long-enough')
+          echo "$listed" | grep -q 'Cloudflare D1 persistence check'
+
+          settings=$(curl --silent --fail --request PATCH http://127.0.0.1:8787/api/settings \
+            --header 'Authorization: Bearer ci-test-owner-token-that-is-long-enough' \
+            --header 'Content-Type: application/json' \
+            --data '{"researchAllowed":false}')
+          echo "$settings" | grep -q '"researchAllowed":false'
+
+          blocked_status=$(curl --silent --output /tmp/opendots-blocked.json --write-out '%{http_code}' \
+            --request POST http://127.0.0.1:8787/api/research \
+            --header 'Authorization: Bearer ci-test-owner-token-that-is-long-enough' \
+            --header 'Content-Type: application/json' \
+            --data '{"objective":"This run should be blocked by settings","synthesize":false}')
+          test "$blocked_status" = "403"
