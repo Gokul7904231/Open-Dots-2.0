@@ -29,10 +29,6 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
-      - name: Inspect canonical formatting (temporary)
-        run: |
-          npx --yes prettier --write .github/workflows/cloudflare-check.yml docs/CLOUDFLARE.md
-          git diff --no-ext-diff --color=never -- .github/workflows/cloudflare-check.yml docs/CLOUDFLARE.md
       - name: Validate Worker bundle
         run: npx --yes wrangler deploy --dry-run --config cloudflare/wrangler.jsonc
       - name: Apply D1 migrations locally
