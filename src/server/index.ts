@@ -51,7 +51,8 @@ const config: PlatformConfig = {
   computerToken: process.env.COMPUTER_TOKEN,
   computerNamespace: process.env.COMPUTER_NAMESPACE,
   cloudflareComputerApiUrl: process.env.CLOUDFLARE_COMPUTER_API_URL,
-  cloudflareComputerProviderToken: process.env.CLOUDFLARE_COMPUTER_PROVIDER_TOKEN,
+  cloudflareComputerProviderToken:
+    process.env.CLOUDFLARE_COMPUTER_PROVIDER_TOKEN,
   voiceKey: process.env.VOICE_API_KEY,
   voiceModel: process.env.VOICE_MODEL,
   voiceName: process.env.VOICE_NAME ?? 'marin',

@@ -46,7 +46,9 @@ export class CloudflareContainerComputerProvider implements ComputerProvider {
       url.search ||
       url.hash
     ) {
-      throw new Error('Cloudflare computer API URL must be a root HTTPS origin.');
+      throw new Error(
+        'Cloudflare computer API URL must be a root HTTPS origin.',
+      );
     }
     return url.origin;
   }
@@ -56,7 +58,8 @@ export class CloudflareContainerComputerProvider implements ComputerProvider {
     method: 'GET' | 'POST',
     signal?: AbortSignal,
   ): Promise<unknown> {
-    if (!this.configured) throw new Error('Cloudflare computer provider is not configured.');
+    if (!this.configured)
+      throw new Error('Cloudflare computer provider is not configured.');
     const controller = new AbortController();
     const combined = signal
       ? AbortSignal.any([signal, controller.signal])
@@ -73,9 +76,14 @@ export class CloudflareContainerComputerProvider implements ComputerProvider {
         signal: combined,
       });
       if (!response.ok) {
-        throw new Error(`Cloudflare computer provider returned HTTP ${response.status}.`);
+        throw new Error(
+          `Cloudflare computer provider returned HTTP ${response.status}.`,
+        );
       }
-      if (!response.body) throw new Error('Cloudflare computer provider returned an empty response.');
+      if (!response.body)
+        throw new Error(
+          'Cloudflare computer provider returned an empty response.',
+        );
       const reader = response.body.getReader();
       const chunks: Uint8Array[] = [];
       let size = 0;
@@ -85,7 +93,9 @@ export class CloudflareContainerComputerProvider implements ComputerProvider {
         size += value.length;
         if (size > 100_000) {
           await reader.cancel();
-          throw new Error('Cloudflare computer provider response exceeded its size limit.');
+          throw new Error(
+            'Cloudflare computer provider response exceeded its size limit.',
+          );
         }
         chunks.push(value);
       }
@@ -99,35 +109,54 @@ export class CloudflareContainerComputerProvider implements ComputerProvider {
       try {
         return JSON.parse(text) as unknown;
       } catch {
-        throw new Error('Cloudflare computer provider returned malformed JSON.');
+        throw new Error(
+          'Cloudflare computer provider returned malformed JSON.',
+        );
       }
     } catch (error) {
       if (combined.aborted) {
-        throw new Error('Cloudflare computer provider request was cancelled or timed out.', {
-          cause: error,
-        });
+        throw new Error(
+          'Cloudflare computer provider request was cancelled or timed out.',
+          {
+            cause: error,
+          },
+        );
       }
       if (
         error instanceof Error &&
-        /^Cloudflare computer provider (returned HTTP|returned an empty|response exceeded)/.test(error.message)
+        /^Cloudflare computer provider (returned HTTP|returned an empty|response exceeded)/.test(
+          error.message,
+        )
       ) {
         throw error;
       }
-      throw new Error('Cloudflare computer provider is unavailable or returned an invalid response.', {
-        cause: error,
-      });
+      throw new Error(
+        'Cloudflare computer provider is unavailable or returned an invalid response.',
+        {
+          cause: error,
+        },
+      );
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  private parseState(value: unknown, expectedDotId: string): ComputerProviderState {
+  private parseState(
+    value: unknown,
+    expectedDotId: string,
+  ): ComputerProviderState {
     if (!isObject(value) || value.dotId !== expectedDotId) {
-      throw new Error('Cloudflare computer provider returned the wrong Dot identity.');
+      throw new Error(
+        'Cloudflare computer provider returned the wrong Dot identity.',
+      );
     }
     const status = value.status;
-    if (!['running', 'stopped', 'starting', 'failed'].includes(String(status))) {
-      throw new Error('Cloudflare computer provider returned an invalid lifecycle status.');
+    if (
+      !['running', 'stopped', 'starting', 'failed'].includes(String(status))
+    ) {
+      throw new Error(
+        'Cloudflare computer provider returned an invalid lifecycle status.',
+      );
     }
     return {
       dotId: expectedDotId,
@@ -136,8 +165,14 @@ export class CloudflareContainerComputerProvider implements ComputerProvider {
     };
   }
 
-  async get(dotId: string, signal?: AbortSignal): Promise<ComputerProviderState | undefined> {
-    if (!validDotId(dotId)) throw new Error('Invalid Dot identifier for Cloudflare computer provider.');
+  async get(
+    dotId: string,
+    signal?: AbortSignal,
+  ): Promise<ComputerProviderState | undefined> {
+    if (!validDotId(dotId))
+      throw new Error(
+        'Invalid Dot identifier for Cloudflare computer provider.',
+      );
     const state = await this.request(
       `/__provider/computers/${encodeURIComponent(dotId)}`,
       'GET',
@@ -146,8 +181,14 @@ export class CloudflareContainerComputerProvider implements ComputerProvider {
     return this.parseState(state, dotId);
   }
 
-  async ensure(dotId: string, signal?: AbortSignal): Promise<ComputerProviderState> {
-    if (!validDotId(dotId)) throw new Error('Invalid Dot identifier for Cloudflare computer provider.');
+  async ensure(
+    dotId: string,
+    signal?: AbortSignal,
+  ): Promise<ComputerProviderState> {
+    if (!validDotId(dotId))
+      throw new Error(
+        'Invalid Dot identifier for Cloudflare computer provider.',
+      );
     const state = await this.request(
       `/__provider/computers/${encodeURIComponent(dotId)}/ensure`,
       'POST',
@@ -155,13 +196,18 @@ export class CloudflareContainerComputerProvider implements ComputerProvider {
     );
     const parsed = this.parseState(state, dotId);
     if (parsed.status !== 'running' || !parsed.endpoint) {
-      throw new Error('Cloudflare computer provider did not produce a running computer.');
+      throw new Error(
+        'Cloudflare computer provider did not produce a running computer.',
+      );
     }
     return parsed;
   }
 
   async stop(dotId: string, signal?: AbortSignal): Promise<void> {
-    if (!validDotId(dotId)) throw new Error('Invalid Dot identifier for Cloudflare computer provider.');
+    if (!validDotId(dotId))
+      throw new Error(
+        'Invalid Dot identifier for Cloudflare computer provider.',
+      );
     const state = await this.request(
       `/__provider/computers/${encodeURIComponent(dotId)}/stop`,
       'POST',
@@ -169,7 +215,9 @@ export class CloudflareContainerComputerProvider implements ComputerProvider {
     );
     const parsed = this.parseState(state, dotId);
     if (parsed.status !== 'stopped') {
-      throw new Error('Cloudflare computer provider could not stop the Dot computer.');
+      throw new Error(
+        'Cloudflare computer provider could not stop the Dot computer.',
+      );
     }
   }
 }

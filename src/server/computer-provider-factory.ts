@@ -22,7 +22,11 @@ export function createComputerProvider(
         deadlineMs,
       );
     case 'cloudflare-containers':
-      return new CloudflareContainerComputerProvider(config, transport, deadlineMs);
+      return new CloudflareContainerComputerProvider(
+        config,
+        transport,
+        deadlineMs,
+      );
     default:
       throw new Error(
         `Unsupported COMPUTER_PROVIDER "${selected}". Add and register a ComputerProvider adapter before selecting it.`,

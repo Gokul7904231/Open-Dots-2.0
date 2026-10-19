@@ -9,20 +9,18 @@
       "name": "opendots-dot-computer",
       "scheduling_policy": "durable_object",
       "images": {
-        "base": { "dockerfile": "./Dockerfile" }
-      }
-    }
+        "base": { "dockerfile": "./Dockerfile" },
+      },
+    },
   ],
   "durable_objects": {
-    "bindings": [
-      { "name": "DOT_COMPUTERS", "class_name": "DotComputer" }
-    ]
+    "bindings": [{ "name": "DOT_COMPUTERS", "class_name": "DotComputer" }],
   },
   "exports": {
     "DotComputer": {
       "type": "durable-object",
       "storage": "sqlite",
-      "container": "opendots-dot-computer"
-    }
-  }
+      "container": "opendots-dot-computer",
+    },
+  },
 }

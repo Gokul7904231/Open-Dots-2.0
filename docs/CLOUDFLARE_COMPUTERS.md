@@ -19,6 +19,7 @@ Cloudflare Containers are not included on the Workers Free plan. The documented 
 The selected standard-1 instance provides 0.5 vCPU, 4 GiB memory, and 8 GB disk. The Workers Paid included allowances currently list 375 vCPU-minutes, 25 GiB-hours of memory, and 200 GB-hours of disk. At 4 GiB provisioned memory, the included memory allowance is about 6.25 instance-hours per month, before extra metered charges. Check current account pricing before provisioning.
 
 Official sources:
+
 - https://developers.cloudflare.com/containers/platform/pricing/
 - https://developers.cloudflare.com/containers/platform/limits/
 - https://developers.cloudflare.com/containers/guides/snapshots/
