@@ -23,6 +23,8 @@ const controlSchema = z.object({
   resumeSnapshotRequired: z.boolean(),
   request: z.object({ id: z.string(), status: z.string() }).optional(),
 });
+import type { BackupService, BackupType } from './backup/index.js';
+
 export class ComputerService {
   constructor(
     private workspace: WorkspaceStore,
@@ -30,6 +32,7 @@ export class ComputerService {
     private paused: () => boolean,
     private transport: typeof fetch = fetch,
     private deadlineMs = 70000,
+    private backups?: BackupService,
   ) {}
   get configured() {
     return !!(
@@ -366,4 +369,57 @@ export class ComputerService {
       }
     });
   }
+
+  get backupService(): BackupService | undefined {
+    return this.backups;
+  }
+
+  /**
+   * Creates an encrypted durable backup for a Dot's computer state.
+   *
+   * Note on browser profile consistency:
+   * Taking a snapshot of an active Chromium user-data directory while the browser process
+   * is writing will result in locked/inconsistent LevelDB or SQLite database files.
+   * The computer must be quiescent or stopped before taking a profile snapshot.
+   */
+  async snapshot(id: string, type: BackupType, data: Buffer) {
+    this.requireDot(id);
+    if (!this.backups) {
+      throw new Error(
+        'Durable backup service is not configured. Configure B2 storage credentials and OPENDOTS_BACKUP_ENCRYPTION_KEY.',
+      );
+    }
+    return this.audited(id, `backup_${type}`, 'owner', async () => {
+      return this.backups!.createBackup({
+        dotId: id,
+        backupType: type,
+        plaintext: data,
+      });
+    });
+  }
+
+  /**
+   * Restores an encrypted durable backup for a Dot.
+   *
+   * Verifies envelope integrity, cryptographic authenticity (AES-256-GCM),
+   * SHA-256 checksums, and tenant isolation before returning verified plaintext.
+   */
+  async restore(id: string, backupId: string, type: BackupType) {
+    this.requireDot(id);
+    if (!this.backups) {
+      throw new Error(
+        'Durable backup service is not configured. Configure B2 storage credentials and OPENDOTS_BACKUP_ENCRYPTION_KEY.',
+      );
+    }
+    return this.audited(id, `restore_${type}`, 'owner', async () => {
+      return this.backups!.restoreBackup(id, backupId, type);
+    });
+  }
+
+  async listBackups(id: string, type?: BackupType) {
+    this.requireDot(id);
+    if (!this.backups) return [];
+    return this.backups.listDotBackups(id, type);
+  }
 }
+

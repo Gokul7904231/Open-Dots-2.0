@@ -8,8 +8,10 @@
     "test": "tests"
   },
   "scripts": {
-    "dev": "concurrently -k \"cross-env NODE_ENV=development node --dns-result-order=ipv4first --env-file-if-exists=.env --import tsx src/server/index.ts\" \"vite\"",
+    "dev": "concurrently -k \"node --env-file-if-exists=.env smart_router.mjs\" \"cross-env NODE_ENV=development node --dns-result-order=ipv4first --env-file-if-exists=.env --import tsx src/server/index.ts\" \"vite\"",
+    "router": "node --env-file-if-exists=.env smart_router.mjs",
     "build": "vite build && tsc -p tsconfig.server.json",
+    "migrate:mongo": "node --env-file-if-exists=.env --import tsx src/server/migrate-to-mongo.ts",
     "start": "node --env-file-if-exists=.env dist/server/server/index.js",
     "browser": "node --env-file-if-exists=.env --import tsx src/browser/index.ts",
     "browser:start": "node --env-file-if-exists=.env dist/server/browser/index.js",
@@ -26,6 +28,7 @@
   "dependencies": {
     "@ag-ui/client": "^0.0.59",
     "@ag-ui/core": "^0.0.59",
+    "@aws-sdk/client-s3": "^3.1154.0",
     "@copilotkit/channels": "^0.11.0",
     "@copilotkit/core": "^1.75.0",
     "@copilotkit/react-core": "^1.75.0",
@@ -46,6 +49,7 @@
     "@tiptap/suggestion": "3.31.3",
     "hono": "^4.13.11",
     "lucide-react": "^1.48.0",
+    "mongodb": "^7.7.0",
     "playwright": "^1.63.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

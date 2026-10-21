@@ -60,6 +60,12 @@ export interface PlatformConfig extends WebConfig {
   slackDotId?: string;
   runtimeUrl: string;
   ownerToken?: string;
+  b2Endpoint?: string;
+  b2Region?: string;
+  b2Bucket?: string;
+  b2KeyId?: string;
+  b2ApplicationKey?: string;
+  backupEncryptionKey?: string;
 }
 export function setupStatus(
   config: PlatformConfig,

@@ -14,6 +14,7 @@ import {
   intelligenceWsUrlFromEnv,
   type PlatformConfig,
 } from './platform-config.js';
+import { getMongoDb, isMongoConfigured, closeMongo } from './mongodb.js';
 const host = process.env.HOST ?? '127.0.0.1';
 const port = Number(process.env.PORT ?? 4310);
 const ownerToken = process.env.OWNER_TOKEN;
@@ -61,6 +62,12 @@ const config: PlatformConfig = {
   slackDotId: process.env.SLACK_DOT_ID || undefined,
   runtimeUrl: `http://${host === '::1' ? '[::1]' : '127.0.0.1'}:${port}/api/copilotkit`,
   ownerToken,
+  b2Endpoint: process.env.B2_S3_ENDPOINT || process.env.B2_ENDPOINT,
+  b2Region: process.env.B2_REGION,
+  b2Bucket: process.env.B2_BUCKET || process.env.B2_BUCKET_NAME,
+  b2KeyId: process.env.B2_KEY_ID,
+  b2ApplicationKey: process.env.B2_APPLICATION_KEY,
+  backupEncryptionKey: process.env.OPENDOTS_BACKUP_ENCRYPTION_KEY,
 };
 const platform = new Platform(store, workspace, config);
 const researchConfig = {
@@ -114,6 +121,15 @@ app.use('/*', serveStatic({ root: './dist/client' }));
 app.get('*', serveStatic({ path: './dist/client/index.html' }));
 const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
   console.log(`OpenDots template listening on http://${host}:${info.port}`);
+  if (isMongoConfigured()) {
+    getMongoDb()
+      .then(() => {
+        console.log('[MongoDB] Connected to MongoDB Atlas successfully.');
+      })
+      .catch((error) => {
+        console.error('[MongoDB] Failed to connect to MongoDB Atlas:', error);
+      });
+  }
   runner.start();
   void platform
     .start()
@@ -127,10 +143,14 @@ const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
 const shutdown = createShutdown({
   stopRunner: () => runner.stop(),
   stopPlatform: () => platform.stop(),
-  closeServer: () =>
-    new Promise<void>((resolve, reject) =>
+  closeServer: async () => {
+    if (isMongoConfigured()) {
+      await closeMongo().catch(() => {});
+    }
+    return new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
-    ),
+    );
+  },
   exit: (code) => process.exit(code),
   report: (operation, error) =>
     reportChannelFailure(operation, [safeFailure(error)]),

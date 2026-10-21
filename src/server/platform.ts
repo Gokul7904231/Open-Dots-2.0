@@ -22,10 +22,13 @@ import {
 import { validateRuntimeScope } from './runtime-scope.js';
 import { learningSelector } from './learning.js';
 import { SetupTelemetry } from './setup-telemetry.js';
+import { b2ConfigFromEnv, B2StorageAdapter, BackupService } from './backup/index.js';
+
 export class Platform {
   private channelStartupFailed = false;
   readonly setupTelemetry: SetupTelemetry;
   readonly pages: PageService;
+  readonly backupService?: BackupService;
   readonly computers: ComputerService;
   readonly connections: ConnectionService;
   readonly intelligence?: CopilotKitIntelligence;
@@ -36,10 +39,22 @@ export class Platform {
     readonly config: PlatformConfig,
   ) {
     this.setupTelemetry = new SetupTelemetry(store);
+    try {
+      const b2Config = b2ConfigFromEnv();
+      if (b2Config) {
+        const adapter = new B2StorageAdapter(b2Config);
+        this.backupService = new BackupService(adapter);
+      }
+    } catch {
+      // B2 storage configuration absent or incomplete; graceful fallback
+    }
     this.computers = new ComputerService(
       workspace,
       config,
       () => store.settings().paused,
+      undefined,
+      undefined,
+      this.backupService,
     );
     this.connections = new ConnectionService(workspace.connections);
     this.pages = new PageService(workspace, () => {
