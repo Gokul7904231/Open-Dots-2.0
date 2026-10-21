@@ -16,10 +16,13 @@
     "browser": "node --env-file-if-exists=.env --import tsx src/browser/index.ts",
     "browser:start": "node --env-file-if-exists=.env dist/server/browser/index.js",
     "test": "cross-env DO_NOT_TRACK=1 vitest run",
+    "qualify:computer": "node --env-file-if-exists=.env scripts/qualify-computer.mjs",
+    "cf:computer:dev": "npx --yes wrangler dev --config cloudflare-computer/wrangler.jsonc",
+    "cf:computer:deploy": "npx --yes wrangler deploy --config cloudflare-computer/wrangler.jsonc",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src tests vite.config.ts",
-    "format": "prettier --write src tests *.json *.ts *.js index.html public .github Dockerfile \"compose*.yml\" deployment README.md docs .env.example --ignore-unknown",
-    "check-format": "prettier --check src tests *.json *.ts *.js index.html public .github Dockerfile \"compose*.yml\" deployment README.md docs .env.example --ignore-unknown"
+    "lint": "eslint src tests scripts vite.config.ts",
+    "format": "prettier --write src tests scripts *.json *.ts *.js index.html public .github Dockerfile \"compose*.yml\" deployment README.md docs .env.example --ignore-unknown",
+    "check-format": "prettier --check src tests scripts *.json *.ts *.js index.html public .github Dockerfile \"compose*.yml\" deployment README.md docs .env.example --ignore-unknown"
   },
   "keywords": [],
   "author": "Atai Barkai",

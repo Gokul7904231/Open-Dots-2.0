@@ -45,10 +45,13 @@ export interface PlatformConfig extends WebConfig {
   embeddingApiKey?: string;
   embeddingModel?: string;
   embeddingDimensions?: number;
+  computerProvider?: string;
   computerSupervisorUrl?: string;
   computerSupervisorToken?: string;
   computerToken?: string;
   computerNamespace?: string;
+  cloudflareComputerApiUrl?: string;
+  cloudflareComputerProviderToken?: string;
   browserUrl?: string;
   browserSecret?: string;
   voiceKey?: string;

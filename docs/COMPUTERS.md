@@ -4,6 +4,16 @@ OpenDots connects each specialist to its own container through [OpenBot](https:/
 
 The app exposes selected computer tools to the same Dot agent used by web chat, Slack, scheduled work, and voice's compute delegation. Browser, workspace-file, and shell permissions are saved per Dot and checked by the server. They start disabled. No action falls back to your host's shell or files when the computer service is unavailable.
 
+## Provider architecture
+
+OpenDots separates its computer API from the infrastructure used to provision computers. Set `COMPUTER_PROVIDER=docker-supervisor` to use the current OpenBot supervisor and Docker Engine adapter. The provider contract lives in `src/server/computer-provider.ts`; adapters and provider selection live in `src/server/docker-supervisor-provider.ts` and `src/server/computer-provider-factory.ts`.
+
+See [Computer Provider Contract](COMPUTER_PROVIDERS.md) for the provider requirements. The local Docker adapter remains the development default. The experimental Cloudflare Containers adapter is the chosen remote target; it needs a separately deployed Worker, the matching server/Worker secrets, and a successful live qualification run before production use. Provider selection alone is not evidence that the runtime is configured or qualified.
+
+## Use the Cloudflare computer runtime
+
+Follow [Cloudflare Computer Setup](CLOUDFLARE_COMPUTERS.md) to deploy the dedicated Worker and configure the OpenDots server. Select `COMPUTER_PROVIDER=cloudflare-containers` only after the Worker is deployed. Cloudflare Containers require the Workers Paid plan and usage charges; this is not a Workers Free-tier computer. Run `npm run qualify:computer` against the actual deployed OpenDots app before relying on the provider.
+
 ## Start services for local development
 
 Use a working Docker Engine with Compose v2 and BuildKit support for additional build contexts. Keep the application on Node.js 24 as described in [Setup](SETUP.md). Add two different random secrets of at least 24 characters to `.env` and set:
@@ -53,6 +63,12 @@ Stop retains files and browser profiles. The app does not expose a destructive r
 Revoking a capability cancels the application's active request and prevents subsequent actions. Cancellation cannot undo completed side effects, and an upstream browser operation may finish after the request is cancelled. Stop the computer when you need to end all activity in its container. Activity retains the latest 1,000 completed records per Dot, plus pending requests.
 
 The template uses standard Docker container isolation; containers share the host kernel. Shell access permits programs and network access inside the container and can read that Dot's own browser profile. Run this on infrastructure appropriate for that trust level. `COMPUTER_RUNTIME=runsc` can select an already-installed gVisor runtime; the template does not install it or claim stronger isolation by default. It does not configure a restrictive network-egress policy.
+
+## Live qualification
+
+Run the live lifecycle proof against the currently configured provider with `npm run qualify:computer`. It tests real HTTPS browser navigation, workspace writes, a provider stop/start, workspace persistence, and (by default) an HTTPS cookie across restart. Read [Live Computer Qualification](COMPUTER_QUALIFICATION.md) for prerequisites and safe cleanup behavior.
+
+This is a runtime qualification tool, not an uptime/free-tier guarantee. It only proves the exact provider configuration and resources that were tested.
 
 ## Verify and troubleshoot
 

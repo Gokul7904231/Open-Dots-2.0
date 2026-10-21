@@ -15,12 +15,6 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - name: Temporary formatter and diff capture
-        run: |
-          npm run format
-          echo "BEGIN_FORMAT_DIFF"
-          git diff --no-ext-diff --unified=999999 -- src/server/dot-agent.ts src/server/embeddings.ts tests/embeddings.test.ts tests/tanstack-agent.test.ts README.md docs/SETUP.md
-          echo "END_FORMAT_DIFF"
       - run: npm run check-format
       - run: npm run lint
       - run: npm run typecheck

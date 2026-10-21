@@ -9,13 +9,11 @@ import {
 } from '../shared/computer-types.js';
 import type { WorkspaceStore } from './workspace.js';
 import type { PlatformConfig } from './platform-config.js';
-const stateSchema = z.object({
-  botId: z.string(),
-  container: z.string(),
-  status: z.string(),
-  port: z.number().int().min(1024).max(65535).optional(),
-  url: z.string().optional(),
-});
+import type {
+  ComputerProvider,
+  ComputerProviderState,
+} from './computer-provider.js';
+import { createComputerProvider } from './computer-provider-factory.js';
 const controlSchema = z.object({
   holder: z.enum(['bot', 'human']),
   requested: z.boolean(),
@@ -26,20 +24,34 @@ const controlSchema = z.object({
 import type { BackupService, BackupType } from './backup/index.js';
 
 export class ComputerService {
+  private readonly provider: ComputerProvider;
+  private readonly backups?: BackupService;
   constructor(
     private workspace: WorkspaceStore,
     private config: PlatformConfig,
     private paused: () => boolean,
     private transport: typeof fetch = fetch,
     private deadlineMs = 70000,
-    private backups?: BackupService,
-  ) {}
+    providerOrBackups?: ComputerProvider | BackupService,
+    backups?: BackupService,
+  ) {
+    let resolvedProvider: ComputerProvider | undefined;
+    let resolvedBackups = backups;
+
+    if (providerOrBackups) {
+      if ('createBackup' in providerOrBackups) {
+        resolvedBackups = providerOrBackups;
+      } else {
+        resolvedProvider = providerOrBackups;
+      }
+    }
+
+    this.provider =
+      resolvedProvider ?? createComputerProvider(config, transport, deadlineMs);
+    this.backups = resolvedBackups;
+  }
   get configured() {
-    return !!(
-      this.config.computerSupervisorUrl?.trim() &&
-      this.config.computerSupervisorToken?.trim() &&
-      this.config.computerToken?.trim()
-    );
+    return !!this.config.computerToken?.trim() && this.provider.configured;
   }
   private token(id: string) {
     return createHmac('sha256', this.config.computerToken!.trim())
@@ -136,55 +148,28 @@ export class ComputerService {
       clearTimeout(timeout);
     }
   }
-  private supervisor(path: string, body?: unknown, signal?: AbortSignal) {
-    return this.json(
-      `${this.config.computerSupervisorUrl!.replace(/\/$/, '')}${path}`,
-      this.config.computerSupervisorToken!.trim(),
-      body,
-      signal,
-    );
-  }
-  private endpoint(id: string, raw: unknown) {
-    const state = stateSchema.parse(raw);
-    const ns = this.config.computerNamespace ?? 'opendots';
-    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(ns))
-      throw new Error('Invalid computer namespace.');
-    const expected = `${ns}-computer-${id}`;
-    if (state.botId !== id || state.container !== expected)
-      throw new Error('Computer identity mismatch.');
-    const url = new URL(
-      state.url ??
-        (state.port
-          ? `http://127.0.0.1:${state.port}`
-          : `http://${expected}:4100`),
-    );
-    const network =
-      url.hostname === expected.toLowerCase() && url.port === '4100';
-    const local =
-      url.hostname === '127.0.0.1' &&
-      !!state.port &&
-      url.port === String(state.port) &&
-      new URL(this.config.computerSupervisorUrl!).hostname === '127.0.0.1';
+  private endpoint(id: string, state: ComputerProviderState) {
+    if (state.dotId !== id)
+      throw new Error('Computer provider identity mismatch.');
+    if (!state.endpoint)
+      throw new Error('Computer provider did not return a computer endpoint.');
+    const url = new URL(state.endpoint);
+    const secureProtocol =
+      url.protocol === 'https:' ||
+      (this.provider.id === 'docker-supervisor' && url.protocol === 'http:');
     if (
-      url.protocol !== 'http:' ||
+      !secureProtocol ||
       url.username ||
       url.password ||
       url.pathname !== '/' ||
       url.search ||
-      url.hash ||
-      (!network && !local)
+      url.hash
     )
-      throw new Error('Computer endpoint is not bound to this Dot.');
+      throw new Error('Computer provider endpoint is invalid.');
     return url.origin;
   }
-  private async existing(id: string, signal?: AbortSignal) {
-    const listing = z
-      .object({ computers: z.array(stateSchema) })
-      .parse(await this.supervisor('/computers', undefined, signal));
-    return listing.computers.find((c) => c.botId === id);
-  }
   private async running(id: string, signal?: AbortSignal) {
-    const state = await this.existing(id, signal);
+    const state = await this.provider.get(id, signal);
     if (!state || state.status !== 'running')
       throw new Error('Start this Dot’s computer first.');
     return this.endpoint(id, state);
@@ -198,7 +183,7 @@ export class ComputerService {
     };
     if (!this.configured) return { ...base, state: 'not_configured' };
     try {
-      const state = await this.existing(id);
+      const state = await this.provider.get(id);
       if (!state || state.status !== 'running')
         return { ...base, state: 'stopped' };
       const url = this.endpoint(id, state);
@@ -217,7 +202,7 @@ export class ComputerService {
         ...base,
         state: 'unavailable',
         error:
-          'Computer service is unavailable. Check the supervisor configuration and connection.',
+          'Computer service is unavailable. Check the provider configuration and connection.',
       };
     }
   }
@@ -248,7 +233,7 @@ export class ComputerService {
   async start(id: string) {
     await this.audited(id, 'start', 'owner', async () => {
       this.allowed(id, undefined, 'owner');
-      this.endpoint(id, await this.supervisor(`/computers/${id}/ensure`, {}));
+      this.endpoint(id, await this.provider.ensure(id));
     });
     return this.status(id);
   }
@@ -256,7 +241,7 @@ export class ComputerService {
     await this.audited(id, 'stop', 'owner', async () => {
       if (!this.configured)
         throw new Error('Computer service is not configured.');
-      await this.supervisor(`/computers/${id}/stop`, {});
+      await this.provider.stop(id);
     });
     return this.status(id);
   }

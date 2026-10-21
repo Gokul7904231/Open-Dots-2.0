@@ -1,0 +1,91 @@
+name: Computer Integration
+
+on:
+  push:
+    paths:
+      - 'src/server/computer-*.ts'
+      - 'src/server/docker-supervisor-provider.ts'
+      - 'src/shared/computer-types.ts'
+      - 'compose*.yml'
+      - 'Dockerfile'
+      - 'deployment/computers/**'
+      - 'scripts/qualify-computer.mjs'
+      - 'docs/COMPUTER_QUALIFICATION.md'
+      - 'package.json'
+      - '.github/workflows/computer-integration.yml'
+  pull_request:
+    paths:
+      - 'src/server/computer-*.ts'
+      - 'src/server/docker-supervisor-provider.ts'
+      - 'src/shared/computer-types.ts'
+      - 'compose*.yml'
+      - 'Dockerfile'
+      - 'deployment/computers/**'
+      - 'scripts/qualify-computer.mjs'
+      - 'docs/COMPUTER_QUALIFICATION.md'
+      - 'package.json'
+      - '.github/workflows/computer-integration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  qualify-one-dot:
+    name: Build and qualify one persistent computer
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Disposable test credentials only. Never reused outside this ephemeral CI job.
+      OWNER_TOKEN: opendots-ci-owner-token-not-for-production-2026
+      COMPUTER_SUPERVISOR_TOKEN: opendots-ci-supervisor-token-not-for-production-2026
+      COMPUTER_TOKEN: opendots-ci-computer-token-not-for-production-2026
+      COMPUTER_NAMESPACE: opendotsci
+      COMPUTER_PROVIDER: docker-supervisor
+      COMPUTER_MEMORY_BYTES: '2147483648'
+      OPENDOTS_BASE_URL: http://127.0.0.1:4310
+      COMPUTER_QUALIFY_TIMEOUT_MS: '90000'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Compose configuration
+        run: |
+          docker compose -f compose.yml -f compose.computers.yml -f compose.computers-app.yml config --quiet
+
+      - name: Build OpenDots and the pinned computer runtime
+        run: |
+          docker compose -f compose.yml -f compose.computers.yml -f compose.computers-app.yml build app computer-image computer-supervisor
+
+      - name: Start OpenDots and the computer supervisor
+        run: |
+          docker compose -f compose.yml -f compose.computers.yml -f compose.computers-app.yml up -d app computer-supervisor
+
+      - name: Wait for authenticated OpenDots API
+        shell: bash
+        run: |
+          ready=0
+          for attempt in $(seq 1 180); do
+            if curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${OWNER_TOKEN}" \
+              "${OPENDOTS_BASE_URL}/api/workspace" >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker compose -f compose.yml -f compose.computers.yml -f compose.computers-app.yml ps
+            exit 1
+          fi
+
+      - name: Qualify browser, files, and stop/start persistence
+        run: node --env-file-if-exists=.env scripts/qualify-computer.mjs
+
+      - name: Collect service logs on failure
+        if: failure()
+        run: |
+          docker compose -f compose.yml -f compose.computers.yml -f compose.computers-app.yml logs --no-color --tail=250 app computer-supervisor
+
+      - name: Tear down ephemeral Docker test stack
+        if: always()
+        run: |
+          docker compose -f compose.yml -f compose.computers.yml -f compose.computers-app.yml down --volumes --remove-orphans
