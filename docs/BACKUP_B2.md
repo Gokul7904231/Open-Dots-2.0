@@ -27,22 +27,22 @@ Add the following environment variables to `.env`:
 
 ```env
 # S3-compatible Backblaze B2 endpoint URL
-B2_S3_ENDPOINT=https://s3.us-east-005.backblazeb2.com
+B2_S3_ENDPOINT=
 
 # Region where your B2 bucket resides
-B2_REGION=us-east-005
+B2_REGION=
 
 # Name of the Backblaze B2 bucket
-B2_BUCKET=opendots-persistence-20261021
+B2_BUCKET=
 
 # Dedicated bucket-restricted B2 Application Key ID
-B2_KEY_ID=005fdf16e54e49c0000000001
+B2_KEY_ID=
 
 # Dedicated B2 Application Key secret
-B2_APPLICATION_KEY=K005fEd5Y8oS83PekPmGlfBAyWWml7w
+B2_APPLICATION_KEY=
 
 # 256-bit encryption key (64 hex characters or 32+ character passphrase)
-OPENDOTS_BACKUP_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+OPENDOTS_BACKUP_ENCRYPTION_KEY=
 ```
 
 _Note: For backward compatibility, `B2_ENDPOINT` and `B2_BUCKET_NAME` are also supported._
