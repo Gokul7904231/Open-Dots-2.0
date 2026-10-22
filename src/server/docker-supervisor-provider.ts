@@ -4,6 +4,7 @@ import type {
   ComputerProvider,
   ComputerProviderState,
 } from './computer-provider.js';
+import type { BackupType } from './backup/types.js';
 
 const supervisorComputerSchema = z.object({
   botId: z.string(),
@@ -191,5 +192,81 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
   async stop(dotId: string, signal?: AbortSignal): Promise<void> {
     this.requireDotId(dotId);
     await this.json(`/computers/${dotId}/stop`, {}, signal);
+  }
+
+  async exportData(
+    dotId: string,
+    type: BackupType,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    this.requireDotId(dotId);
+    if (!this.configured)
+      throw new Error('Computer provider is not configured.');
+    const base = this.config.computerSupervisorUrl!.trim().replace(/\/$/, '');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.deadlineMs);
+    const combined = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+
+    try {
+      const response = await this.transport(
+        `${base}/computers/${dotId}/export?type=${encodeURIComponent(type)}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.config.computerSupervisorToken!.trim()}`,
+          },
+          signal: combined,
+        },
+      );
+      if (!response.ok) {
+        throw new Error(
+          `Computer supervisor export failed with HTTP ${response.status}.`,
+        );
+      }
+      return Buffer.from(await response.arrayBuffer());
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async importData(
+    dotId: string,
+    type: BackupType,
+    data: Buffer,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    this.requireDotId(dotId);
+    if (!this.configured)
+      throw new Error('Computer provider is not configured.');
+    const base = this.config.computerSupervisorUrl!.trim().replace(/\/$/, '');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.deadlineMs);
+    const combined = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+
+    try {
+      const response = await this.transport(
+        `${base}/computers/${dotId}/import?type=${encodeURIComponent(type)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            Authorization: `Bearer ${this.config.computerSupervisorToken!.trim()}`,
+          },
+          body: new Uint8Array(data),
+          signal: combined,
+        },
+      );
+      if (!response.ok) {
+        throw new Error(
+          `Computer supervisor import failed with HTTP ${response.status}.`,
+        );
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 }

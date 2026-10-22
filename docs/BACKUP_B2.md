@@ -103,12 +103,41 @@ Deterministic object key path:
 Browser profiles (`/profiles/${botId}`) contain active LevelDB databases, cookies, and session state managed by Chromium:
 
 - **Do not snapshot a running browser while it is actively modifying files.** Archiving a live profile risks capturing mid-write SQLite or LevelDB states, causing corruption upon restore.
-- **Always ensure the computer is stopped or paused** before taking or restoring a browser profile snapshot.
+- **Automated Lifecycle**: When taking a `browser-profile` or `full-computer` snapshot, `ComputerService` automatically:
+  1. Prevents new agent operations using per-Dot backup locks.
+  2. Stops the computer process via `provider.stop(dotId)` to flush SQLite and LevelDB write-ahead logs.
+  3. Exports the quiescent profile directory.
+  4. Resumes the computer via `provider.ensure(dotId)` if it was running.
+  5. Surfaces any resume failure clearly without silently leaving the computer offline.
+- Workspace backups (`workspace`) do not stop Chromium because `/workspace` is independent of Chromium profile databases.
+
+### Verified Restoration & Staging Safety
+
+Restoration executes in a verified, fail-safe sequence:
+
+1. **Cryptographic Validation**: The encrypted backup envelope is retrieved from B2, checking magic bytes (`ODBK`), envelope version, Dot ownership, and AES-256-GCM authentication tag. Plaintext and ciphertext SHA-256 hashes are verified before touching any files.
+2. **Archive Safety Verification**: All archive entry paths are inspected before extraction. Absolute paths, `../` directory traversal attempts, symlink attacks, and zip-bombs exceeding resource budgets (max 500 MB total, max 10,000 files) are rejected outright.
+3. **Quiescent Target Injection**: For browser profiles, running computers are quiesced before restored files are imported.
+4. **Fail-Safe Integrity**: If an archive is corrupt or invalid, the restore fails immediately without modifying or corrupting existing working files.
+5. **Resume**: Once verified and imported, the computer is safely resumed.
+
+### HTTP API Endpoints
+
+All backup routes are mounted under `/api` and require owner authentication:
+
+| Method | Route                                              | Description                                                                                          |
+| ------ | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/dots/:id/computer/backups`                   | List all backups for a Dot (supports optional `?type=workspace` filter).                             |
+| `POST` | `/api/dots/:id/computer/backups`                   | Create an encrypted snapshot. Body: `{"type": "workspace" \| "browser-profile" \| "full-computer"}`. |
+| `POST` | `/api/dots/:id/computer/backups/:backupId/restore` | Restore a specific backup into the Dot's computer.                                                   |
 
 ### Provider Integration & Limitations
 
-- **Local / OpenBot Supervisor**: Containers mount named Docker volumes (`${NAMESPACE}-profile-${botId}` and `${NAMESPACE}-workspace-${botId}`).
-- **Cloud Sandboxes (e.g. Vercel Sandbox / CodeSandbox)**: Remote sandbox providers operate in isolated microVMs without host Docker socket access or native volume export endpoints. Integration requires container-level file export tooling.
+| Provider                                           | Workspace Backup / Restore                                             | Browser Profile Backup / Restore                                                      | Status                                                             |
+| -------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Local Docker Supervisor** (`docker-supervisor`)  | Supported (direct HTTP file action & supervisor archive export/import) | Supported (quiescent volume export/import via `/computers/:botId/export` & `/import`) | **Verified**                                                       |
+| **Cloudflare Containers** (`cloudflare-container`) | Supported via workspace file actions                                   | Pending container volume tar export hooks                                             | Partially supported                                                |
+| **Vercel Sandbox / CodeSandbox**                   | Pending filesystem export integration                                  | Pending microVM snapshot export API                                                   | **Pending** (requires remote sandbox provider export/import hooks) |
 
 ---
 
@@ -124,12 +153,12 @@ When bucket versioning is enabled on Backblaze B2:
 
 ## 6. Testing & Qualification
 
-### Running Automated Unit Tests
+### Running Automated Unit & Integration Tests
 
-Deterministic unit tests use in-memory and mocked S3 adapters:
+Deterministic unit and integration tests verify B2 adapter operations, encryption, archive safety, lifecycle quiescence, and authenticated HTTP routes:
 
 ```bash
-npx vitest run tests/b2-backup.test.ts
+npx vitest run tests/b2-backup.test.ts tests/b2-computer-integration.test.ts tests/computer.test.ts
 ```
 
 ### Running the Live Backblaze B2 Smoke Test
