@@ -52,6 +52,10 @@ export interface PlatformConfig extends WebConfig {
   computerNamespace?: string;
   cloudflareComputerApiUrl?: string;
   cloudflareComputerProviderToken?: string;
+  vercelToken?: string;
+  vercelTeamId?: string;
+  vercelProjectId?: string;
+  vercelSandboxImage?: string;
   browserUrl?: string;
   browserSecret?: string;
   voiceKey?: string;

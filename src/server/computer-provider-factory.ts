@@ -2,6 +2,7 @@ import type { PlatformConfig } from './platform-config.js';
 import type { ComputerProvider } from './computer-provider.js';
 import { DockerSupervisorComputerProvider } from './docker-supervisor-provider.js';
 import { CloudflareContainerComputerProvider } from './cloudflare-computer-provider.js';
+import { VercelSandboxComputerProvider } from './vercel-sandbox-provider.js';
 
 /**
  * Resolve the selected provider in one place. Register future cloud/container/
@@ -27,6 +28,9 @@ export function createComputerProvider(
         transport,
         deadlineMs,
       );
+    case 'vercel-sandbox':
+    case 'vercel':
+      return new VercelSandboxComputerProvider(config, transport, deadlineMs);
     default:
       throw new Error(
         `Unsupported COMPUTER_PROVIDER "${selected}". Add and register a ComputerProvider adapter before selecting it.`,

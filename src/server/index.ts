@@ -54,6 +54,10 @@ const config: PlatformConfig = {
   cloudflareComputerApiUrl: process.env.CLOUDFLARE_COMPUTER_API_URL,
   cloudflareComputerProviderToken:
     process.env.CLOUDFLARE_COMPUTER_PROVIDER_TOKEN,
+  vercelToken: process.env.VERCEL_TOKEN,
+  vercelTeamId: process.env.VERCEL_TEAM_ID,
+  vercelProjectId: process.env.VERCEL_PROJECT_ID,
+  vercelSandboxImage: process.env.VERCEL_SANDBOX_IMAGE,
   voiceKey: process.env.VOICE_API_KEY,
   voiceModel: process.env.VOICE_MODEL,
   voiceName: process.env.VOICE_NAME ?? 'marin',

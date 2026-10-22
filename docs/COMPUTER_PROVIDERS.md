@@ -55,3 +55,34 @@ The Worker checks the existing per-Dot HMAC credential before proxying computer 
 Cloudflare Containers are not available on Workers Free. The documented minimum is Workers Paid at $5/month plus metered compute, memory, disk, Durable Object, and egress usage. The selected `standard-1` instance has 0.5 vCPU, 4 GiB memory, and 8 GB disk. The monthly included memory allowance (25 GiB-hours) covers about 6.25 hours at that instance size. Review the current account plan and usage before provisioning.
 
 See [Cloudflare computer setup](CLOUDFLARE_COMPUTERS.md) and the official [Containers pricing](https://developers.cloudflare.com/containers/platform/pricing/), [instance limits](https://developers.cloudflare.com/containers/platform/limits/), and [snapshot documentation](https://developers.cloudflare.com/containers/guides/snapshots/).
+
+## Vercel Sandbox provider
+
+The `vercel-sandbox` adapter (also selectable via `COMPUTER_PROVIDER=vercel`) provisions persistent Linux MicroVMs backed by Firecracker using the official `@vercel/sandbox` SDK (`^3.8.0`).
+
+### Architecture & Identity
+
+- **Stable Identity**: Each Dot is mapped 1:1 to a named sandbox: `${COMPUTER_NAMESPACE:-opendots}-computer-${dotId}`.
+- **MicroVM Isolation**: Hardware-level guest virtualization with dedicated guest kernel, root/sudo execution, and native Linux package management.
+- **Service Execution**: Runs the pinned OpenBot `agent-computer` service (from CopilotKit/OpenBot revision `b6932d31a8d6e7896c15139dfc27a6c6911deb27`) directly in the MicroVM on port `4100` via Bun.
+- **Routing**: Exposes port `4100` as a secure HTTPS endpoint: `https://<subdomain>.vercel.run`. Non-root paths, non-HTTPS protocols, or foreign domains are strictly rejected by endpoint validation.
+
+### Authentication & Credential Boundaries
+
+- **Server-Side Management**: `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID` (or `VERCEL_OIDC_TOKEN`) are held exclusively on the trusted OpenDots server. They are never injected into the Dot's workspace, browser, or environment.
+- **Per-Dot Authentication**: The master `COMPUTER_TOKEN` never leaves the host. Each MicroVM receives only its Dot-specific HMAC derived token (`HMAC-SHA256(COMPUTER_TOKEN, "opendots-computer:" + dotId)`). Requests from OpenDots present this token, and `agent-computer` rejects unauthorized requests with HTTP 401.
+
+### Persistence & B2 Storage Integration
+
+- **Vercel Snapshot Semantics**: Persistent sandboxes (`persistent: true`) automatically snapshot disk state upon `stop()`.
+- **Process Reconstruction**: On session resume, `onResume` restarts the background `agent-computer` daemon process with bounded `/health` readiness polling.
+- **Durable B2 Backups**: Provider implements `exportData` and `importData` hooks for `workspace`, `browser-profile`, and `full-computer`:
+  - **Profile Quiescence**: Stops compute/browser before archiving or restoring profile state to ensure Chromium flushes cookies and SQLite databases cleanly.
+  - **Archive Safety**: Cryptographically validates and sanitizes archives (`extractArchive`) before writing, extracting via staging directories (`/tmp/staging-...`) to prevent partial or corrupted state.
+  - **Eviction Recovery**: If a Vercel snapshot expires or is deleted (`snapshot_not_found`), the B2 durable storage layer restores the Dot's workspace and browser profiles.
+
+### Resource Limits, Quotas & Costs
+
+- **Execution Limits**: Default session timeout is 5 minutes (300,000 ms), extensible up to 45 minutes on Hobby and 24 hours on Pro/Enterprise.
+- **Snapshot Retention**: By default, snapshots are retained according to the project policy (typically 7 days retention).
+- **Billing**: Vercel Sandbox is a metered, billable cloud service based on active vCPU execution time, provisioned memory (2 GB RAM per vCPU), and network egress. It requires a valid Vercel account with billing enabled.

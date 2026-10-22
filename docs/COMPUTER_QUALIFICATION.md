@@ -52,3 +52,34 @@ If outbound access to `httpbin.org` is blocked, you may disable only the cookie 
 6. Unless disabled, a unique browser cookie survives stop/start.
 
 The test never enables shell execution, exposes a provider endpoint, or logs owner/provider tokens.
+
+## Vercel Sandbox Qualification
+
+To qualify the Vercel Sandbox provider against a real Vercel deployment:
+
+### Prerequisites & Environment
+
+Configure in `.env`:
+
+```dotenv
+COMPUTER_PROVIDER=vercel-sandbox
+COMPUTER_TOKEN=your-random-computer-master-secret
+VERCEL_TOKEN=your-vercel-api-token
+VERCEL_TEAM_ID=team_xxxxxxxx
+VERCEL_PROJECT_ID=prj_xxxxxxxx
+# Optional custom OCI image (defaults to vercel/sandbox/universal:latest)
+# VERCEL_SANDBOX_IMAGE=
+```
+
+### Run Command
+
+```sh
+COMPUTER_PROVIDER=vercel-sandbox npm run qualify:computer
+```
+
+### Live Qualification Boundary & Status
+
+> [!IMPORTANT]
+> **Live Qualification Status: NOT RUN (BLOCKED pending explicit user authorization & cloud resource approval)**
+> Automated qualification creates persistent microVM sessions on Vercel which incur active CPU and memory billing charges.
+> In accordance with safety policies, deterministic mock tests have run and passed (`tests/vercel-sandbox-computer-provider.test.ts`), while live cloud provisioning remains gated until the operator supplies credentials and authorizes metered cloud execution.

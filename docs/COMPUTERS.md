@@ -14,6 +14,10 @@ See [Computer Provider Contract](COMPUTER_PROVIDERS.md) for the provider require
 
 Follow [Cloudflare Computer Setup](CLOUDFLARE_COMPUTERS.md) to deploy the dedicated Worker and configure the OpenDots server. Select `COMPUTER_PROVIDER=cloudflare-containers` only after the Worker is deployed. Cloudflare Containers require the Workers Paid plan and usage charges; this is not a Workers Free-tier computer. Run `npm run qualify:computer` against the actual deployed OpenDots app before relying on the provider.
 
+## Use the Vercel Sandbox computer runtime
+
+Select `COMPUTER_PROVIDER=vercel-sandbox` to run each Dot's computer inside an isolated Linux MicroVM using the official `@vercel/sandbox` SDK. See [Computer Provider Contract](COMPUTER_PROVIDERS.md) for configuration and snapshot lifecycle details, and [Live Computer Qualification](COMPUTER_QUALIFICATION.md) for qualification procedures.
+
 ## Start services for local development
 
 Use a working Docker Engine with Compose v2 and BuildKit support for additional build contexts. Keep the application on Node.js 24 as described in [Setup](SETUP.md). Add two different random secrets of at least 24 characters to `.env` and set:
