@@ -340,7 +340,7 @@ export function createBackupSupervisor({
       '/dev/shm/.opendots-helper-output-' +
       randomBytes(8).toString('hex');
     const wrappedCommand =
-      command + ' > ' + shellPath(outputPath) + ' 2>&1';
+      '{ ' + command + '; } > ' + shellPath(outputPath) + ' 2>&1';
     const exec = await helper.exec({
       Cmd: ['sh', '-c', wrappedCommand],
       User: '0',
