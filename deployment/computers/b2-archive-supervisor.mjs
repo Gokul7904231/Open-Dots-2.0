@@ -271,7 +271,7 @@ function workspaceSwapCommands(stage, rollback) {
   return {
     moveOld: "set -eu; for p in /workspace/* /workspace/.[!.]* /workspace/..?*; do [ -e \"$p\" ] || [ -L \"$p\" ] || continue; case \"$p\" in " + s + "|" + r + ") continue;; esac; mv -- \"$p\" " + r + "/; done",
     moveNew: "set -eu; for p in " + s + "/* " + s + "/.[!.]* " + s + "/..?*; do [ -e \"$p\" ] || [ -L \"$p\" ] || continue; mv -- \"$p\" /workspace/; done",
-    rollback: "set -eu; failed=/workspace/.opendots-b2-failed-" + stage.split("-").at(-1) + "; mkdir -p \"$failed\"; for p in /workspace/* /workspace/.[!.]* /workspace/..?*; do [ -e \"$p\" ] || [ -L \"$p\" ] || continue; case \"$p\" in " + s + "|" + r + "|\"$failed\") continue;; esac; mv -- \"$p\" \"$failed\"/; done; for p in " + r + "/* " + r + "/.[!.]* " + r + "/..?*; do [ -e \"$p\" ] || [ -L \"$p\" ] || continue; mv -- \"$p\" /workspace/; done; rm -rf \"$failed\" " + s + " " + r,
+    rollback: "set -eu; failed=/workspace/.opendots-b2-failed-" + stage.split("-").at(-1) + "; mkdir -p \"$failed\"; for p in /workspace/* /workspace/.[!.]* /workspace/..?*; do [ -e \"$p\" ] || [ -L \"$p\" ] || continue; case \"$p\" in " + s + "|" + r + "|\"$failed\") continue;; esac; mv -- \"$p\" \"$failed\"/; done; for p in " + r + "/* " + r + "/.[!.]* " + r + "/..?*; do [ -e \"$p\" ] || [ -L \"$p\" ] || continue; mv -- \"$p\" /workspace/; done; rm -rf " + s + " " + r,
     cleanup: "rm -rf " + s + " " + r,
   };
 }
@@ -315,7 +315,7 @@ function profileSwapCommands(botId, stage, rollback) {
   return {
     moveOld: "set -eu; if [ -e " + t + " ] || [ -L " + t + " ]; then mv -- " + t + " " + r + "; fi",
     moveNew: "mv -- " + s + " " + t,
-    rollback: "set -eu; if [ -e " + t + " ] || [ -L " + t + " ]; then mv -- " + t + " " + s + "; fi; if [ -e " + r + " ] || [ -L " + r + " ]; then mv -- " + r + " " + t + "; fi; rm -rf " + s,
+    rollback: "set -eu; if [ -e " + t + " ] || [ -L " + t + " ]; then mv -- " + t + " " + s + "; fi; if [ -e " + r + " ] || [ -L " + r + " ]; then mv -- " + r + " " + t + "; fi",
     cleanup: "rm -rf " + s + " " + r,
   };
 }
@@ -382,12 +382,6 @@ export async function importComputerData(names, rawType, input, signal) {
       if (type === "browser-profile" || type === "full-computer") {
         profileState = await swapProfile(helper, names.botId, profileStage, profileRollback, signal);
       }
-      if (workspaceState) {
-        await runHelper(helper, workspaceSwapCommands(workspaceState.stage, workspaceState.rollback).cleanup, signal);
-      }
-      if (profileState) {
-        await runHelper(helper, profileSwapCommands(names.botId, profileState.stage, profileState.rollback).cleanup, signal);
-      }
     } catch (error) {
       let rollbackFailed = false;
       if (profileState) {
@@ -400,6 +394,23 @@ export async function importComputerData(names, rawType, input, signal) {
         throw new BackupRouteError(500, "Restore failed; rollback directories were retained for manual recovery.");
       }
       throw error;
+    }
+
+    // Once both swaps succeed the restore is committed. Cleanup failures must not
+    // trigger an attempted rollback after the previous data may already be deleted.
+    if (workspaceState) {
+      try {
+        await runHelper(helper, workspaceSwapCommands(workspaceState.stage, workspaceState.rollback).cleanup, signal);
+      } catch {
+        console.warn("Workspace restore succeeded, but staging/rollback cleanup needs operator review.");
+      }
+    }
+    if (profileState) {
+      try {
+        await runHelper(helper, profileSwapCommands(names.botId, profileState.stage, profileState.rollback).cleanup, signal);
+      } catch {
+        console.warn("Browser-profile restore succeeded, but staging/rollback cleanup needs operator review.");
+      }
     }
   }, signal);
 }
