@@ -74,12 +74,7 @@ class AsyncByteReader {
         maxBytes - written,
         this.current.length - this.offset,
       );
-      this.current.copy(
-        output,
-        written,
-        this.offset,
-        this.offset + copyLength,
-      );
+      this.current.copy(output, written, this.offset, this.offset + copyLength);
       written += copyLength;
       this.offset += copyLength;
     }
