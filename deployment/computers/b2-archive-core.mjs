@@ -337,8 +337,7 @@ export function createBackupSupervisor({
     // HTTP 101 exec hijack. Start detached, use an ordinary HTTP 200 response, then
     // inspect until Docker records the process exit status.
     const outputPath =
-      '/dev/shm/.opendots-helper-output-' +
-      randomBytes(8).toString('hex');
+      '/dev/shm/.opendots-helper-output-' + randomBytes(8).toString('hex');
     const wrappedCommand =
       '{ ' + command + '; } > ' + shellPath(outputPath) + ' 2>&1';
     const exec = await helper.exec({
