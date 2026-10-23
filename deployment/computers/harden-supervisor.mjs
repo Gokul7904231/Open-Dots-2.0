@@ -48,15 +48,16 @@ export function hardenSupervisorIndex(source) {
     if (next.split(item.anchor).length !== 2) {
       throw new Error("Pinned OpenBot " + item.action + " route contract changed; review before building.");
     }
+    const invalid = '  if (!parsed.ok) return context.json({ error: parsed.reason }, 400);';
+    const locked = '  if (isBackupLocked(parsed.names.botId)) return context.json({ error: "Computer is being backed up or restored." }, 409);';
     const insertion = item.action === "ensure"
-      ? '  if (isBackupLocked(parsed.names.botId)) return context.json({ error: "Computer is being backed up or restored." }, 409);\n\n  try {'
+      ? invalid + '\n  ' + locked.trim() + '\n\n  try {'
       : item.action === "stop"
-        ? '  if (isBackupLocked(parsed.names.botId)) return context.json({ error: "Computer is being backed up or restored." }, 409);\n  try {\n    const stopped = await stop(parsed.names);'
-        : '  if (isBackupLocked(parsed.names.botId)) return context.json({ error: "Computer is being backed up or restored." }, 409);\n  try {\n    const wasThere = await reset(parsed.names);';
+        ? invalid + '\n  ' + locked.trim() + '\n  try {\n    const stopped = await stop(parsed.names);'
+        : invalid + '\n  ' + locked.trim() + '\n  try {\n    const wasThere = await reset(parsed.names);';
     next = next.replace(item.anchor, insertion);
   }
 
-  const attachAnchor = '  serveAnchor';
   return next.replace(
     serveAnchor,
     "attachBackupRoutes(app, resolve);\n\n" + serveAnchor,
