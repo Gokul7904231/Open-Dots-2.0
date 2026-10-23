@@ -57,13 +57,6 @@ interface Header extends OdarStreamV2Identity {
   salt: string;
 }
 
-interface ParsedHeader {
-  header: Header;
-  headerBytes: Buffer;
-  headerBinding: Buffer;
-  key: Buffer;
-}
-
 function abortIfNeeded(signal?: AbortSignal): void {
   if (!signal?.aborted) return;
   if (signal.reason instanceof Error) throw signal.reason;
@@ -389,8 +382,7 @@ export async function* decryptOdarStreamV2(
     throw new Error('ODAR-Stream v2 header length is invalid.');
   }
   const headerBytes = await reader.readExactly(headerLength);
-  const parsedHeader = parseHeader(headerBytes);
-  const { header } = parsedHeader;
+  const header = parseHeader(headerBytes);
 
   for (const key of ['dotId', 'backupId', 'archiveType'] as const) {
     const expected = expectedIdentity[key];

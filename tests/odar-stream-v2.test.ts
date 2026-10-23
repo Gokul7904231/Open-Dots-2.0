@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import {
   ODAR_STREAM_V2_MAGIC,
@@ -174,11 +175,8 @@ describe('ODAR-Stream v2 framing', () => {
   });
 
   it('supports a correctly authenticated empty stream', async () => {
-    async function* empty(): AsyncGenerator<Buffer> {
-      return;
-    }
     const encoded = await collect(
-      encryptOdarStreamV2(empty(), key, identity, { chunkSize: 128 }),
+      encryptOdarStreamV2(Readable.from([]), key, identity, { chunkSize: 128 }),
     );
 
     await expect(decode(encoded)).resolves.toEqual(Buffer.alloc(0));
