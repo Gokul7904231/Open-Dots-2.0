@@ -573,11 +573,9 @@ export class ComputerService {
     signal?: AbortSignal,
   ): Promise<Buffer> {
     if (this.provider.exportData && this.provider.configured) {
-      try {
-        return await this.provider.exportData(id, type, signal);
-      } catch (providerError) {
-        if (type !== 'workspace') throw providerError;
-      }
+      // A configured provider hook is authoritative. Do not hide its failures by
+      // silently falling back to text-only file actions, which corrupt binary data.
+      return await this.provider.exportData(id, type, signal);
     }
 
     if (type === 'workspace') {
@@ -608,12 +606,9 @@ export class ComputerService {
     signal?: AbortSignal,
   ): Promise<void> {
     if (this.provider.importData && this.provider.configured) {
-      try {
-        await this.provider.importData(id, type, data, signal);
-        return;
-      } catch (providerError) {
-        if (type !== 'workspace') throw providerError;
-      }
+      // Do not turn a provider's failed binary import into a text-file fallback.
+      await this.provider.importData(id, type, data, signal);
+      return;
     }
 
     if (type === 'workspace') {
