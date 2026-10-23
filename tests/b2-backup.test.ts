@@ -522,6 +522,33 @@ describe('BackupService End-to-End Workflow & Tenant Isolation', () => {
       return { key, eTag: '"mock-etag"' };
     }
 
+    async writeBackupStream(
+      key: string,
+      source: AsyncIterable<Uint8Array>,
+      metadata?: Record<string, string>,
+    ) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of source) chunks.push(Buffer.from(chunk));
+      return this.writeBackup(key, Buffer.concat(chunks), metadata);
+    }
+
+    async readBackupStream(key: string) {
+      const entry = this.storage.get(key);
+      if (!entry) throw new Error('NoSuchKey: Object does not exist');
+      const data = entry.data;
+      async function* fragments() {
+        const fragmentSize = 97;
+        for (let offset = 0; offset < data.length; offset += fragmentSize) {
+          yield data.subarray(offset, offset + fragmentSize);
+        }
+      }
+      return {
+        stream: fragments(),
+        metadata: entry.metadata,
+        versionId: 'memory-v1',
+      };
+    }
+
     async readBackup(key: string) {
       const entry = this.storage.get(key);
       if (!entry) throw new Error('NoSuchKey: Object does not exist');
@@ -571,6 +598,119 @@ describe('BackupService End-to-End Workflow & Tenant Isolation', () => {
 
   const hexKey =
     'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
+
+  it('creates and restores a V2 stream only after manifest and archive validation', async () => {
+    const memory = new MemoryStorageAdapter();
+    const service = new BackupService(memory, Buffer.from(hexKey, 'hex'));
+    const archive = createArchive('workspace', [
+      {
+        path: 'notes/hello.txt',
+        data: Buffer.from('streamed archive payload'),
+      },
+    ]);
+
+    async function* source() {
+      for (let offset = 0; offset < archive.length; offset += 43) {
+        yield archive.subarray(offset, offset + 43);
+      }
+    }
+
+    const receipt = await service.createStreamingBackup({
+      dotId: 'dot-stream',
+      backupType: 'workspace',
+      source: source(),
+    });
+    expect(receipt.formatVersion).toBe(2);
+    expect(memory.storage.get(receipt.key)?.metadata).toMatchObject({
+      'backup-version': '2',
+      'backup-format': 'odar-stream-v2',
+      'dot-id': 'dot-stream',
+      'backup-id': receipt.backupId,
+    });
+
+    const stagedChunks: Buffer[] = [];
+    const events: string[] = [];
+    const restored = await service.restoreStreamingBackup({
+      dotId: 'dot-stream',
+      backupId: receipt.backupId,
+      backupType: 'workspace',
+      createStage: async () => ({
+        async write(chunk) {
+          stagedChunks.push(Buffer.from(chunk));
+          events.push('write');
+        },
+        async validate() {
+          const parsed = extractArchive(Buffer.concat(stagedChunks), undefined, {
+            strict: true,
+            expectedType: 'workspace',
+          });
+          expect(parsed).toHaveLength(1);
+          expect(parsed[0]?.path).toBe('notes/hello.txt');
+          expect(parsed[0]?.data.toString()).toBe('streamed archive payload');
+          events.push('validate');
+        },
+        async commit() {
+          events.push('commit');
+          return Buffer.concat(stagedChunks);
+        },
+        async rollback() {
+          events.push('rollback');
+        },
+      }),
+    });
+
+    expect(restored).toEqual(archive);
+    expect(events.at(-2)).toBe('validate');
+    expect(events.at(-1)).toBe('commit');
+    expect(events).not.toContain('rollback');
+  });
+
+  it('rolls back staged data when the V2 final-manifest tag is corrupt', async () => {
+    const memory = new MemoryStorageAdapter();
+    const service = new BackupService(memory, Buffer.from(hexKey, 'hex'));
+    const archive = createArchive('workspace', [
+      { path: 'notes/hello.txt', data: Buffer.from('must not commit') },
+    ]);
+
+    const receipt = await service.createStreamingBackup({
+      dotId: 'dot-rollback',
+      backupType: 'workspace',
+      source: (async function* () {
+        yield archive;
+      })(),
+    });
+    const stored = memory.storage.get(receipt.key);
+    if (!stored) throw new Error('Expected the V2 object to exist.');
+    stored.data[stored.data.length - 1] ^= 0x01;
+
+    const events: string[] = [];
+    await expect(
+      service.restoreStreamingBackup({
+        dotId: 'dot-rollback',
+        backupId: receipt.backupId,
+        backupType: 'workspace',
+        createStage: async () => ({
+          async write() {
+            events.push('write');
+          },
+          async validate() {
+            events.push('validate');
+          },
+          async commit() {
+            events.push('commit');
+          },
+          async rollback() {
+            events.push('rollback');
+          },
+        }),
+      }),
+    ).rejects.toThrow(/final manifest authentication failed/);
+
+    expect(events).toContain('write');
+    expect(events).toContain('rollback');
+    expect(events).not.toContain('validate');
+    expect(events).not.toContain('commit');
+  });
 
   it('creates, verifies, lists, and restores backups with strict tenant isolation', async () => {
     const memory = new MemoryStorageAdapter();
