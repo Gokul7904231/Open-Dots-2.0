@@ -17,6 +17,39 @@ const computerListingSchema = z.object({
   computers: z.array(supervisorComputerSchema),
 });
 
+const MAX_BACKUP_TRANSFER_BYTES = 600 * 1024 * 1024;
+const BACKUP_TRANSFER_TIMEOUT_MS = 5 * 60 * 1000;
+
+async function readLimitedResponse(
+  response: Response,
+  maximum: number,
+): Promise<Buffer> {
+  const declaredLength = Number(response.headers.get('content-length') ?? '');
+  if (Number.isFinite(declaredLength) && declaredLength > maximum) {
+    await response.body?.cancel();
+    throw new Error('Computer supervisor backup exceeded its size limit.');
+  }
+  if (!response.body) throw new Error('Computer supervisor returned an empty backup.');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > maximum) {
+        await reader.cancel();
+        throw new Error('Computer supervisor backup exceeded its size limit.');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks);
+}
+
 /**
  * Adapter for the existing OpenBot supervisor + Docker Engine implementation.
  * Keep all Docker names, supervisor HTTP paths, and loopback/network checks here;
@@ -204,7 +237,10 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
       throw new Error('Computer provider is not configured.');
     const base = this.config.computerSupervisorUrl!.trim().replace(/\/$/, '');
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.deadlineMs);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.max(this.deadlineMs, BACKUP_TRANSFER_TIMEOUT_MS),
+    );
     const combined = signal
       ? AbortSignal.any([signal, controller.signal])
       : controller.signal;
@@ -217,6 +253,7 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
           headers: {
             Authorization: `Bearer ${this.config.computerSupervisorToken!.trim()}`,
           },
+          redirect: 'error',
           signal: combined,
         },
       );
@@ -225,7 +262,7 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
           `Computer supervisor export failed with HTTP ${response.status}.`,
         );
       }
-      return Buffer.from(await response.arrayBuffer());
+      return await readLimitedResponse(response, MAX_BACKUP_TRANSFER_BYTES);
     } finally {
       clearTimeout(timeout);
     }
@@ -240,9 +277,15 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
     this.requireDotId(dotId);
     if (!this.configured)
       throw new Error('Computer provider is not configured.');
+    if (data.length > MAX_BACKUP_TRANSFER_BYTES) {
+      throw new Error('Computer supervisor backup exceeded its size limit.');
+    }
     const base = this.config.computerSupervisorUrl!.trim().replace(/\/$/, '');
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.deadlineMs);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.max(this.deadlineMs, BACKUP_TRANSFER_TIMEOUT_MS),
+    );
     const combined = signal
       ? AbortSignal.any([signal, controller.signal])
       : controller.signal;
@@ -257,6 +300,7 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
             Authorization: `Bearer ${this.config.computerSupervisorToken!.trim()}`,
           },
           body: new Uint8Array(data),
+          redirect: 'error',
           signal: combined,
         },
       );
