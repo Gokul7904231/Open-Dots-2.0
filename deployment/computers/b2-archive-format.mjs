@@ -58,6 +58,7 @@ export function encodeOdar(type, entries) {
     path: safeArchivePath(entry.path),
     data: Buffer.from(entry.data),
     mtime: Number.isFinite(entry.mtime) ? Math.max(0, Math.floor(entry.mtime)) : Math.floor(Date.now() / 1000),
+    mode: Number.isSafeInteger(entry.mode) ? entry.mode & 0o777 : 0o644,
   }));
   assertBudget(normalized);
   const document = {
@@ -70,6 +71,7 @@ export function encodeOdar(type, entries) {
       dataBase64: entry.data.toString("base64"),
       size: entry.data.length,
       mtime: entry.mtime,
+      mode: entry.mode,
     })),
   };
   const encoded = gzipSync(Buffer.from(JSON.stringify(document), "utf8"));
@@ -113,6 +115,7 @@ export function decodeOdar(input, expectedType) {
       path,
       data,
       mtime: Number.isFinite(file.mtime) ? Math.max(0, Math.floor(file.mtime)) : 0,
+      mode: Number.isSafeInteger(file.mode) ? file.mode & 0o777 : 0o644,
     };
   });
   assertBudget(entries);
@@ -172,6 +175,7 @@ export function parseTarArchive(input, rootPath, type) {
     const name = textAt(header, 0, 100);
     const prefix = textAt(header, 345, 155);
     const headerPath = prefix ? prefix + "/" + name : name;
+    const mode = octalAt(header, 100, 8) & 0o777;
     const headerSize = octalAt(header, 124, 12);
     const mtime = octalAt(header, 136, 12);
     const typeflag = header[156] === 0 ? "0" : String.fromCharCode(header[156]);
@@ -217,7 +221,7 @@ export function parseTarArchive(input, rootPath, type) {
     if (total > ARCHIVE_LIMITS.maxTotalBytes || entries.length >= ARCHIVE_LIMITS.maxFiles) {
       throw new Error("Tar archive exceeds extraction budgets.");
     }
-    entries.push({ path: safePath, data: Buffer.from(payload), mtime });
+    entries.push({ path: safePath, data: Buffer.from(payload), mtime, mode });
   }
   assertBudget(entries);
   return entries;
@@ -257,7 +261,7 @@ function makeTarHeader(path, entry, size, typeflag = "0") {
     if (!found) throw new Error("Tar path requires an extended PAX record.");
   }
   writeString(header, 0, 100, name);
-  writeOctal(header, 100, 8, 0o644);
+  writeOctal(header, 100, 8, Number.isSafeInteger(entry.mode) ? entry.mode & 0o777 : 0o644);
   writeOctal(header, 108, 8, 0);
   writeOctal(header, 116, 8, 0);
   writeOctal(header, 124, 12, size);
@@ -310,6 +314,7 @@ export function createTarArchive(entries) {
     path: safeArchivePath(entry.path),
     data: Buffer.from(entry.data),
     mtime: Number.isFinite(entry.mtime) ? Math.max(0, Math.floor(entry.mtime)) : Math.floor(Date.now() / 1000),
+    mode: Number.isSafeInteger(entry.mode) ? entry.mode & 0o777 : 0o644,
   }));
   assertBudget(normalized);
   const chunks = [];
