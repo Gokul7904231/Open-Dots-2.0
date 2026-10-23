@@ -239,13 +239,17 @@ function createHarness(options = {}) {
   };
 
   const warnings = [];
+  const errors = [];
   const supervisor = createBackupSupervisor({
     docker,
     namespace: NS,
     defaultNamespace: 'openbot',
     labels: LABELS,
     image: () => 'opendots-computer:test',
-    log: { warn: (...args) => warnings.push(args.join(' ')), error: () => {} },
+    log: {
+      warn: (...args) => warnings.push(args.join(' ')),
+      error: (...args) => errors.push(args.join(' ')),
+    },
   });
   const app = new Hono();
   app.use('*', supervisor.lifecycleGuard);
@@ -289,6 +293,7 @@ function createHarness(options = {}) {
     exportOf,
     importOf,
     warnings,
+    errors,
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   };
 }
@@ -547,6 +552,10 @@ describe('supervisor import', () => {
       workspaceArchive([{ path: 'new.txt', data: Buffer.from('new') }]),
     );
     expect(response.status).toBe(500);
+    expect(harness.errors.join(' ')).toContain(
+      'Backup helper archive upload failed',
+    );
+    expect(harness.errors.join(' ')).toContain('disk full');
     expect(readFileSync(harness.ws('precious.txt'), 'utf8')).toBe('precious');
     expect(existsSync(harness.ws('new.txt'))).toBe(false);
     expect(
