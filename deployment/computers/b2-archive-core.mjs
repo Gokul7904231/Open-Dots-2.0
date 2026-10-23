@@ -333,8 +333,8 @@ export function createBackupSupervisor({
       const result = await execExitCode(helper, command, signal);
       if (result.exitCode !== 0) {
         const output = result.output
-          .replace(/[\\r\\n\\t]+/g, ' ')
-          .replace(/\\s+/g, ' ')
+          .replace(/[\r\n\t]+/g, ' ')
+          .replace(/\s+/g, ' ')
           .trim()
           .slice(-1500);
         logHelperFailure(
@@ -353,7 +353,9 @@ export function createBackupSupervisor({
     } catch (error) {
       if (error instanceof BackupRouteError) throw error;
       const detail =
-        error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
+        error instanceof Error
+          ? error.message.slice(0, 500)
+          : String(error).slice(0, 500);
       logHelperFailure(
         'Backup helper command could not be completed: ' +
           command.slice(0, 400) +
