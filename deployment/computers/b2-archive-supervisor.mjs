@@ -20,6 +20,23 @@ const MAX_REQUEST_BYTES = ARCHIVE_LIMITS.maxArchiveBytes;
 const docker = new Docker(
   process.env.DOCKER_SOCKET ? { socketPath: process.env.DOCKER_SOCKET } : undefined,
 );
+const activeBackupDots = new Set();
+
+export function isBackupLocked(botId) {
+  return activeBackupDots.has(botId);
+}
+
+async function withBackupLock(botId, callback) {
+  if (activeBackupDots.has(botId)) {
+    throw new BackupRouteError(409, "Another backup or restore operation is already active for this computer.");
+  }
+  activeBackupDots.add(botId);
+  try {
+    return await callback();
+  } finally {
+    activeBackupDots.delete(botId);
+  }
+}
 
 class BackupRouteError extends Error {
   constructor(statusCode, message) {
@@ -138,6 +155,7 @@ export async function exportComputerData(names, rawType, signal) {
     }
     if (type === "browser-profile" || type === "full-computer") {
       const profilePath = "/profiles/" + names.botId;
+      await ensureStage(helper, profilePath, signal);
       const profileEntries = await exportPath(helper, profilePath, "browser-profile", signal);
       entries.push(...profileEntries.map((entry) => ({
         ...entry,
@@ -409,10 +427,12 @@ export function attachBackupRoutes(app, resolve) {
       const parsed = resolve(context.req.param("botId"));
       if (!parsed.ok) return context.json({ error: parsed.reason }, 400);
       const type = safeBackupType(context.req.query("type") || "workspace");
-      const archive = await exportComputerData(parsed.names, type, context.req.raw.signal);
-      return context.body(archive, 200, {
-        "Content-Type": "application/octet-stream",
-        "Cache-Control": "no-store",
+      return await withBackupLock(parsed.names.botId, async () => {
+        const archive = await exportComputerData(parsed.names, type, context.req.raw.signal);
+        return context.body(archive, 200, {
+          "Content-Type": "application/octet-stream",
+          "Cache-Control": "no-store",
+        });
       });
     } catch (error) {
       const status = error instanceof BackupRouteError ? error.statusCode : 500;
@@ -427,8 +447,10 @@ export function attachBackupRoutes(app, resolve) {
       if (!parsed.ok) return context.json({ error: parsed.reason }, 400);
       const type = safeBackupType(context.req.query("type") || "workspace");
       const payload = await readRequestLimited(context.req.raw, MAX_REQUEST_BYTES, context.req.raw.signal);
-      await importComputerData(parsed.names, type, payload, context.req.raw.signal);
-      return context.json({ imported: true, botId: parsed.names.botId, type });
+      return await withBackupLock(parsed.names.botId, async () => {
+        await importComputerData(parsed.names, type, payload, context.req.raw.signal);
+        return context.json({ imported: true, botId: parsed.names.botId, type });
+      });
     } catch (error) {
       const status = error instanceof BackupRouteError ? error.statusCode : 500;
       const message = error instanceof BackupRouteError ? error.message : "Backup import failed.";
