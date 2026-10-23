@@ -3,7 +3,6 @@ import Docker from "dockerode";
 import {
   BOT_LABEL,
   DEFAULT_NAMESPACE,
-  namesFor,
   NAMESPACE,
   NAMESPACE_LABEL,
   OWNER_LABEL,
@@ -120,28 +119,33 @@ async function exportPath(container, path, archiveType, signal) {
 export async function exportComputerData(names, rawType, signal) {
   const type = safeBackupType(rawType);
   const info = await inspectOwnedComputer(names);
-  const container = docker.getContainer(names.container);
   if ((type === "browser-profile" || type === "full-computer") && info.State?.Running) {
     throw new BackupRouteError(409, "Stop the computer before exporting its Chromium profile.");
   }
+  await ensureOwnedVolume(names.workspaceVolume, names);
+  await ensureOwnedVolume(names.profileVolume, names);
 
-  let entries = [];
-  if (type === "workspace" || type === "full-computer") {
-    const workspaceEntries = await exportPath(container, "/workspace", "workspace", signal);
-    entries.push(...workspaceEntries.map((entry) => ({
-      ...entry,
-      path: type === "full-computer" ? "workspace/" + entry.path : entry.path,
-    })));
-  }
-  if (type === "browser-profile" || type === "full-computer") {
-    const profilePath = "/profiles/" + names.botId;
-    const profileEntries = await exportPath(container, profilePath, "browser-profile", signal);
-    entries.push(...profileEntries.map((entry) => ({
-      ...entry,
-      path: type === "full-computer" ? "browser-profile/" + entry.path : entry.path,
-    })));
-  }
-  return encodeOdar(type, entries);
+  // Read from a short-lived helper with only this Dot's volumes mounted. This works
+  // for stopped containers too and never requires exposing the Docker socket to a Dot.
+  return withVolumeHelper(names, async (helper) => {
+    const entries = [];
+    if (type === "workspace" || type === "full-computer") {
+      const workspaceEntries = await exportPath(helper, "/workspace", "workspace", signal);
+      entries.push(...workspaceEntries.map((entry) => ({
+        ...entry,
+        path: type === "full-computer" ? "workspace/" + entry.path : entry.path,
+      })));
+    }
+    if (type === "browser-profile" || type === "full-computer") {
+      const profilePath = "/profiles/" + names.botId;
+      const profileEntries = await exportPath(helper, profilePath, "browser-profile", signal);
+      entries.push(...profileEntries.map((entry) => ({
+        ...entry,
+        path: type === "full-computer" ? "browser-profile/" + entry.path : entry.path,
+      })));
+    }
+    return encodeOdar(type, entries);
+  }, signal);
 }
 
 function shellPath(path) {
