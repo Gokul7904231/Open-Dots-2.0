@@ -94,12 +94,19 @@ describe('ODAR-Stream v2 framing', () => {
 
   it('rejects truncated data or a missing final manifest', async () => {
     const encoded = await collect(
-      encryptOdarStreamV2(fragment(Buffer.from('payload'.repeat(40))), key, identity, {
-        chunkSize: 17,
-      }),
+      encryptOdarStreamV2(
+        fragment(Buffer.from('payload'.repeat(40))),
+        key,
+        identity,
+        {
+          chunkSize: 17,
+        },
+      ),
     );
 
-    await expect(decode(encoded.subarray(0, encoded.length - 1))).rejects.toThrow(
+    await expect(
+      decode(encoded.subarray(0, encoded.length - 1)),
+    ).rejects.toThrow(
       /truncated|manifest authentication failed|final manifest/i,
     );
   });
@@ -119,9 +126,14 @@ describe('ODAR-Stream v2 framing', () => {
 
   it('rejects out-of-order or repeated data-frame sequence numbers', async () => {
     const encoded = await collect(
-      encryptOdarStreamV2(fragment(Buffer.from('abcdefghijklmnop')), key, identity, {
-        chunkSize: 4,
-      }),
+      encryptOdarStreamV2(
+        fragment(Buffer.from('abcdefghijklmnop')),
+        key,
+        identity,
+        {
+          chunkSize: 4,
+        },
+      ),
     );
     const headerLength = encoded.readUInt32BE(ODAR_STREAM_V2_MAGIC.length);
     const firstFrame = ODAR_STREAM_V2_MAGIC.length + 4 + headerLength;
@@ -145,9 +157,14 @@ describe('ODAR-Stream v2 framing', () => {
 
   it('rejects a wrong encryption key', async () => {
     const encoded = await collect(
-      encryptOdarStreamV2(fragment(Buffer.from('secret payload')), key, identity, {
-        chunkSize: 8,
-      }),
+      encryptOdarStreamV2(
+        fragment(Buffer.from('secret payload')),
+        key,
+        identity,
+        {
+          chunkSize: 8,
+        },
+      ),
     );
     const wrongKey = Buffer.alloc(32, 0x33);
 
