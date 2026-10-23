@@ -50,14 +50,38 @@ describe("supervisor archive format", () => {
     );
   });
 
-  it("patches the pinned supervisor index with authenticated backup routes", () => {
+  it("patches the pinned supervisor index with authenticated backup routes and lifecycle locks", () => {
     const source = [
       'import { listenPort } from "./listen-port";',
+      'app.post("/computers/:botId/ensure", async (context) => {',
+      '  const parsed = resolve(context.req.param("botId"));',
+      '  if (!parsed.ok) return context.json({ error: parsed.reason }, 400);',
+      '',
+      '  try {',
+      '    return context.json({ ok: true });',
+      '  }',
+      '});',
+      'app.post("/computers/:botId/stop", async (context) => {',
+      '  const parsed = resolve(context.req.param("botId"));',
+      '  if (!parsed.ok) return context.json({ error: parsed.reason }, 400);',
+      '  try {',
+      '    const stopped = await stop(parsed.names);',
+      '  }',
+      '});',
+      'app.post("/computers/:botId/reset", async (context) => {',
+      '  const parsed = resolve(context.req.param("botId"));',
+      '  if (!parsed.ok) return context.json({ error: parsed.reason }, 400);',
+      '  try {',
+      '    const wasThere = await reset(parsed.names);',
+      '  }',
+      '});',
       'serve({ port, fetch: app.fetch, idleTimeout: 120 });',
     ].join("\n");
     const patched = hardenSupervisorIndex(source);
-    expect(patched).toContain('import { attachBackupRoutes } from "./b2-archive-supervisor.mjs";');
+    expect(patched).toContain('import { attachBackupRoutes, isBackupLocked } from "./b2-archive-supervisor.mjs";');
     expect(patched).toContain("attachBackupRoutes(app, resolve);");
+    expect(patched).toContain("if (isBackupLocked(parsed.names.botId))");
+    expect(patched).toContain('if (!parsed.ok) return context.json({ error: parsed.reason }, 400);');
   });
 
   it("fails closed if the pinned supervisor index contract changes", () => {
