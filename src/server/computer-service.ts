@@ -505,30 +505,35 @@ export class ComputerService {
         // 2. Validate archive safety before modifying any computer state
         extractArchive(restored.plaintext);
 
-        // 3. Quiesce running computer if necessary (Chromium profiles require quiet state)
-        if (this.provider.configured) {
-          const currentStatus = await this.status(id);
-          wasRunning = currentStatus.state === 'running';
-          const quiesceRequired =
-            wasRunning &&
-            (type === 'browser-profile' || type === 'full-computer');
-          if (quiesceRequired) {
-            await this.provider.stop(id, signal);
-          }
+        // Import requires a configured provider. Otherwise returning restored=true
+        // would falsely report success without applying the verified payload.
+        if (!this.provider.configured) {
+          throw new Error('Computer provider is not configured; backup was verified but not applied.');
+        }
+        const currentStatus = await this.status(id);
+        if (currentStatus.state === 'unavailable' || currentStatus.state === 'not_configured') {
+          throw new Error('Computer provider is unavailable; refusing to modify computer storage.');
+        }
+        wasRunning = currentStatus.state === 'running';
 
-          // 4. Import verified data into the target Dot
-          await this.importComputerData(
-            id,
-            type,
-            restored.plaintext,
-            wasRunning,
-            signal,
-          );
+        // Stop for every restore type: even workspace imports can race with shell processes
+        // writing under /workspace. Browser profiles additionally require a quiescent Chromium.
+        if (wasRunning) {
+          await this.provider.stop(id, signal);
+        }
 
-          // 5. Resume computer if it was quiesced
-          if (quiesceRequired) {
-            await this.provider.ensure(id, signal);
-          }
+        // Import verified data into the target Dot or its persistent volumes.
+        await this.importComputerData(
+          id,
+          type,
+          restored.plaintext,
+          wasRunning,
+          signal,
+        );
+
+        // Resume only when the computer was running before restore.
+        if (wasRunning) {
+          await this.provider.ensure(id, signal);
         }
 
         return {
@@ -612,16 +617,18 @@ export class ComputerService {
     }
 
     if (type === 'workspace') {
-      let startedForImport = false;
-      if (!wasRunning && this.provider.configured) {
-        await this.provider.ensure(id, signal);
-        startedForImport = true;
-      }
+      // This fallback uses the computer HTTP API, so it must run a computer while
+      // the supervisor-backed import path can operate directly on stopped volumes.
+      const current = await this.provider.get(id, signal);
+      const startedForImport = !current || current.status !== 'running';
+      if (startedForImport) await this.provider.ensure(id, signal);
       try {
         await this.importWorkspaceFiles(id, data, signal);
         return;
       } finally {
-        if (startedForImport) {
+        // Preserve the original lifecycle: leave it running when it was running before
+        // restore; otherwise return a temporary import computer to the stopped state.
+        if (startedForImport && !wasRunning) {
           await this.provider.stop(id, signal);
         }
       }
