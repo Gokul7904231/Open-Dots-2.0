@@ -303,21 +303,76 @@ export function createBackupSupervisor({
     }
   }
 
+  async function readHelperOutput(helper, outputPath, signal) {
+    try {
+      const stream = await helper.getArchive({ path: outputPath });
+      const tar = await collectStream(stream, 256 * 1024, signal);
+      const entries = parseTarArchive(tar, '/dev/shm', 'workspace');
+      const filename = outputPath.split('/').at(-1);
+      return (
+        entries
+          .find((entry) => entry.path === filename)
+          ?.data.toString('utf8')
+          .replace(/[\\r\\n\\t]+/g, ' ')
+          .replace(/\\s+/g, ' ')
+          .trim()
+          .slice(-1500) ?? '[helper output was unavailable]'
+      );
+    } catch (error) {
+      if (signal?.aborted)
+        throw new BackupRouteError(499, 'Backup operation cancelled.');
+      return (
+        '[helper output could not be read: ' +
+        (error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200)) +
+        ']'
+      );
+    }
+  }
+
   async function execExitCode(helper, command, signal) {
     if (signal?.aborted)
       throw new BackupRouteError(499, 'Backup operation cancelled.');
+
+    // Bun's node:http implementation does not reliably emit "upgrade" for Docker's
+    // HTTP 101 exec hijack. Start detached, use an ordinary HTTP 200 response, then
+    // inspect until Docker records the process exit status.
+    const outputPath =
+      '/dev/shm/.opendots-helper-output-' +
+      randomBytes(8).toString('hex');
+    const wrappedCommand =
+      command + ' > ' + shellPath(outputPath) + ' 2>&1';
     const exec = await helper.exec({
-      Cmd: ['sh', '-c', command],
+      Cmd: ['sh', '-c', wrappedCommand],
       User: '0',
-      AttachStdout: true,
-      AttachStderr: true,
-      // TTY mode merges stdout/stderr into one bounded diagnostic stream.
-      // These commands are filesystem operations only; never pass credentials here.
-      Tty: true,
+      AttachStdout: false,
+      AttachStderr: false,
+      Tty: false,
     });
-    const stream = await exec.start({ hijack: true, stdin: false });
-    const output = await collectExec(stream, signal);
-    const result = await exec.inspect();
+    const stream = await exec.start({
+      Detach: true,
+      Tty: false,
+      hijack: false,
+      stdin: false,
+      abortSignal: signal,
+    });
+    await collectExec(stream, signal);
+
+    const deadline = Date.now() + 120_000;
+    let result;
+    for (;;) {
+      if (signal?.aborted)
+        throw new BackupRouteError(499, 'Backup operation cancelled.');
+      result = await exec.inspect({ abortSignal: signal });
+      if (result.Running !== true) break;
+      if (Date.now() >= deadline)
+        throw new Error('Backup helper filesystem command timed out.');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    const output =
+      result.ExitCode === 0
+        ? ''
+        : await readHelperOutput(helper, outputPath, signal);
     return { exitCode: result.ExitCode, output };
   }
 
