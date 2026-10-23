@@ -52,7 +52,7 @@ export interface DecryptOdarStreamV2Options {
 
 interface Header extends OdarStreamV2Identity {
   version: 2;
-  payloadEncoding: 'gzip-tar-v1';
+  payloadEncoding: 'gzip-odar-json-v1';
   chunkSize: number;
   salt: string;
 }
@@ -128,7 +128,7 @@ function buildHeader(
     dotId: identity.dotId,
     backupId: identity.backupId,
     archiveType: identity.archiveType,
-    payloadEncoding: 'gzip-tar-v1',
+    payloadEncoding: 'gzip-odar-json-v1',
     chunkSize,
     salt: salt.toString('base64'),
   };
@@ -535,7 +535,7 @@ function parseHeader(rawHeader: Buffer): Header {
     typeof record.dotId !== 'string' ||
     typeof record.backupId !== 'string' ||
     typeof record.archiveType !== 'string' ||
-    record.payloadEncoding !== 'gzip-tar-v1' ||
+    record.payloadEncoding !== 'gzip-odar-json-v1' ||
     typeof record.salt !== 'string' ||
     typeof record.chunkSize !== 'number'
   ) {
@@ -560,7 +560,7 @@ function parseHeader(rawHeader: Buffer): Header {
     dotId: identity.dotId,
     backupId: identity.backupId,
     archiveType: identity.archiveType,
-    payloadEncoding: 'gzip-tar-v1',
+    payloadEncoding: 'gzip-odar-json-v1',
     chunkSize: record.chunkSize,
     salt: record.salt,
   };
