@@ -33,7 +33,7 @@ export interface RestoredBackup {
 }
 
 /**
- * The source must already be an incremental gzip/tar stream. V2 deliberately
+ * The source must already be an incremental gzip-compressed ODAR v1 JSON archive stream. V2 deliberately
  * does not accept a complete Buffer or build an archive in memory.
  */
 export interface CreateStreamingBackupOptions {
@@ -146,7 +146,7 @@ export class BackupService {
 
   /**
    * Creates an opt-in ODAR-Stream v2 backup. The supplied source must be an
-   * incremental gzip/tar stream; storage must support bounded stream uploads.
+   * incremental gzip-compressed ODAR v1 JSON archive stream; storage must support bounded stream uploads.
    * Existing V1 createBackup() is intentionally unchanged.
    */
   async createStreamingBackup(
