@@ -1,0 +1,14 @@
+# CI only. The container-app overlay puts the supervisor on an internal network with no
+# host port, which is right for deployment. The archive qualification talks to the
+# supervisor's HTTP API directly from the runner, so this publishes it on loopback via an
+# extra non-internal network. Never include this file in a real deployment.
+services:
+  computer-supervisor:
+    ports:
+      - '127.0.0.1:4312:4300'
+    networks:
+      - computer-control
+      - ci-host
+networks:
+  ci-host:
+    driver: bridge

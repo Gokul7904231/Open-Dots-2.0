@@ -12,6 +12,7 @@ import {
   assertSafeArchivePath,
   ArchiveBudgetTracker,
   BackupService,
+  createArchive,
   type StorageAdapter,
   type BackupMetadata,
   type BackupEnvelope,
@@ -453,6 +454,10 @@ describe('ComputerService Backup Lifecycle Integration', () => {
   it('integrates backup and restore lifecycle methods with audit recording', async () => {
     const workspace = new WorkspaceStore(':memory:', 'owner');
     const dot = workspace.dots()[0];
+    const restoredArchive = createArchive('browser-profile', [
+      { path: 'Default/Cookies', data: Buffer.from('restored-profile-data') },
+    ]);
+    const importData = vi.fn().mockResolvedValue(undefined);
 
     const mockBackupService = {
       createBackup: vi.fn().mockResolvedValue({
@@ -463,8 +468,8 @@ describe('ComputerService Backup Lifecycle Integration', () => {
         backupType: 'browser-profile',
       }),
       restoreBackup: vi.fn().mockResolvedValue({
-        envelope: { backupId: 'backup-mock-id' },
-        plaintext: Buffer.from('restored-profile-data'),
+        envelope: { backupId: 'backup-mock-id', backupType: 'browser-profile' },
+        plaintext: restoredArchive,
       }),
       listDotBackups: vi
         .fn()
@@ -490,7 +495,7 @@ describe('ComputerService Backup Lifecycle Integration', () => {
         return { dotId, status: 'running', endpoint: 'http://127.0.0.1:4100' };
       },
       async stop() {},
-      async importData() {},
+      importData,
     };
 
     const service = new ComputerService(
@@ -522,7 +527,13 @@ describe('ComputerService Backup Lifecycle Integration', () => {
       'backup-mock-id',
       'browser-profile',
     );
-    expect(restoredRes.plaintext.toString()).toBe('restored-profile-data');
+    // The verified payload must really have been applied before success is reported,
+    // and the decrypted bytes must not be handed back to the caller.
+    expect(importData).toHaveBeenCalledTimes(1);
+    expect(importData.mock.calls[0][1]).toBe('browser-profile');
+    expect(importData.mock.calls[0][2]).toEqual(restoredArchive);
+    expect(restoredRes.restored).toBe(true);
+    expect('plaintext' in restoredRes).toBe(false);
     expect(
       workspace.computers
         .audit(dot.id)

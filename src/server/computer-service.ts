@@ -401,11 +401,12 @@ export class ComputerService {
       }
       this.backupLocks.add(id);
 
-      let wasRunning = false;
       let stoppedForSnapshot = false;
       try {
-        const currentStatus = await this.status(id);
-        wasRunning = currentStatus.state === 'running';
+        // Lifecycle state comes from the provider itself. The control-API probe in
+        // status() reports a running but unresponsive computer as unavailable, which
+        // would skip the stop and export from under a live browser.
+        const wasRunning = await this.isRunning(id, signal);
 
         let payload: Buffer;
         if (data) {
@@ -413,7 +414,8 @@ export class ComputerService {
         } else {
           // A direct volume-export provider must snapshot a stable filesystem, even for
           // workspace-only backups. Browser profiles always require Chromium quiescence.
-          const volumeExport = this.provider.configured && !!this.provider.exportData;
+          const volumeExport =
+            this.provider.configured && !!this.provider.exportData;
           const quiescenceRequired =
             type === 'browser-profile' ||
             type === 'full-computer' ||
@@ -438,6 +440,8 @@ export class ComputerService {
             await this.provider.ensure(id, signal);
             stoppedForSnapshot = false;
           } catch (resumeErr) {
+            // The outer handler must not retry a resume that just failed.
+            stoppedForSnapshot = false;
             throw new Error(
               `Backup created successfully (${envelope.backupId}) but failed to resume computer: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
               { cause: resumeErr },
@@ -447,12 +451,16 @@ export class ComputerService {
 
         return envelope;
       } catch (error) {
-        // Attempt recovery to avoid leaving running computers stopped.
+        // Attempt recovery to avoid leaving running computers stopped, and say so if
+        // that recovery fails too.
         if (stoppedForSnapshot) {
           try {
             await this.provider.ensure(id, signal);
-          } catch {
-            // Retain original failure context
+          } catch (resumeErr) {
+            throw new Error(
+              `${error instanceof Error ? error.message : String(error)} Additionally, the computer could not be resumed: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
           }
         }
         throw error;
@@ -492,7 +500,7 @@ export class ComputerService {
       }
       this.backupLocks.add(id);
 
-      let wasRunning = false;
+      let stoppedForRestore = false;
       try {
         // 1. Download and decrypt through BackupService with cryptographic integrity checks
         const restored = await this.backups!.restoreBackup(
@@ -501,28 +509,36 @@ export class ComputerService {
           type,
           signal,
         );
+        if (restored.envelope.backupType !== type) {
+          throw new Error(
+            'Backup type does not match the requested restore type.',
+          );
+        }
 
-        // 2. Validate archive safety before modifying any computer state
-        extractArchive(restored.plaintext);
+        // 2. Validate the ODAR payload (format, type, path safety, budgets) before any
+        // computer state is modified. Unrecognised payloads are never applied.
+        extractArchive(restored.plaintext, undefined, {
+          strict: true,
+          expectedType: type,
+        });
 
         // Import requires a configured provider. Otherwise returning restored=true
         // would falsely report success without applying the verified payload.
         if (!this.provider.configured) {
-          throw new Error('Computer provider is not configured; backup was verified but not applied.');
+          throw new Error(
+            'Computer provider is not configured; backup was verified but not applied.',
+          );
         }
-        const currentStatus = await this.status(id);
-        if (currentStatus.state === 'unavailable' || currentStatus.state === 'not_configured') {
-          throw new Error('Computer provider is unavailable; refusing to modify computer storage.');
-        }
-        wasRunning = currentStatus.state === 'running';
+        const wasRunning = await this.isRunning(id, signal);
 
-        // Stop for every restore type: even workspace imports can race with shell processes
-        // writing under /workspace. Browser profiles additionally require a quiescent Chromium.
+        // Stop for every restore type: even workspace imports can race with shell
+        // processes writing under /workspace, and a Chromium profile needs quiescence.
         if (wasRunning) {
+          stoppedForRestore = true;
           await this.provider.stop(id, signal);
         }
 
-        // Import verified data into the target Dot or its persistent volumes.
+        // 3. Import verified data into the target Dot or its persistent volumes.
         await this.importComputerData(
           id,
           type,
@@ -531,11 +547,21 @@ export class ComputerService {
           signal,
         );
 
-        // Resume only when the computer was running before restore.
-        if (wasRunning) {
-          await this.provider.ensure(id, signal);
+        // 4. Resume only when this restore stopped a previously running computer.
+        if (stoppedForRestore) {
+          try {
+            await this.provider.ensure(id, signal);
+            stoppedForRestore = false;
+          } catch (resumeErr) {
+            stoppedForRestore = false;
+            throw new Error(
+              `Backup ${backupId} was restored but the computer failed to resume: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
+          }
         }
 
+        // The decrypted payload is deliberately not returned to callers.
         return {
           restored: true,
           backupId,
@@ -543,14 +569,18 @@ export class ComputerService {
           dotId: id,
           byteLength: restored.plaintext.length,
           envelope: restored.envelope,
-          plaintext: restored.plaintext,
         };
       } catch (error) {
-        if (wasRunning) {
+        // A failed import leaves the previous data in place (the supervisor rolls back),
+        // so bring a computer this restore stopped back up. Report if that also fails.
+        if (stoppedForRestore) {
           try {
             await this.provider.ensure(id, signal);
-          } catch {
-            // Retain original error
+          } catch (resumeErr) {
+            throw new Error(
+              `${error instanceof Error ? error.message : String(error)} Additionally, the computer could not be resumed: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
           }
         }
         throw error;
@@ -558,6 +588,11 @@ export class ComputerService {
         this.backupLocks.delete(id);
       }
     });
+  }
+
+  private async isRunning(id: string, signal?: AbortSignal) {
+    const state = await this.provider.get(id, signal);
+    return state?.status === 'running';
   }
 
   async listBackups(id: string, type?: BackupType, signal?: AbortSignal) {

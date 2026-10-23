@@ -98,28 +98,52 @@ Deterministic object key path:
 
 ## 4. Lifecycle & Consistency Rules
 
+### Docker volume layout (verified against OpenBot `b6932d3`)
+
+The pinned supervisor derives these names from `COMPUTER_NAMESPACE` and the Dot id and mounts them into each computer container (`docker.ts` `hostConfig`; the computer reads `WORKSPACE_DIR` and `PROFILES_DIR`):
+
+| Volume                          | Mounted at   | Contents                                                                            |
+| ------------------------------- | ------------ | ----------------------------------------------------------------------------------- |
+| `<namespace>-workspace-<dotId>` | `/workspace` | Bot-produced files (`WORKSPACE_DIR`)                                                |
+| `<namespace>-profile-<dotId>`   | `/profiles`  | One directory per bot: the Chromium profile is `/profiles/<dotId>` (`PROFILES_DIR`) |
+
+The container, the two derived volumes and the labels `openbot.supervisor`, `openbot.bot-id` and `openbot.namespace` are the only ownership evidence. Nothing else is persisted: the container, its environment and its per-Dot credential are recreated by `ensure`, so `full-computer` is exactly workspace plus profile.
+
+### Supervisor export/import
+
+`deployment/computers/` patches the pinned supervisor at image-build time (`harden-supervisor.mjs`) and adds `GET /computers/:dotId/export?type=` and `POST /computers/:dotId/import?type=`. `type` is required and is one of `workspace`, `browser-profile`, `full-computer`.
+
+- **Authentication**: the routes sit behind the supervisor's existing bearer-token middleware, which is registered before them; only `/health` is open. The Dot id must be a plain identifier, and the container, both volumes and their labels must belong to that Dot and namespace. A missing volume is **never created**: restoring into a blank volume would look like recovering a computer that was never identified. Start the computer once to provision its storage, then restore.
+- **Quiescence**: a running computer is refused with 409 (the OpenDots service stops it first). Start, stop and reset are refused while a backup runs, and a backup is refused while a lifecycle request is in flight. Across supervisor processes, the deterministic helper-container name `<namespace>-backup-helper-<dotId>` is the lock, because Docker refuses a duplicate name. A helper that outlives a crash expires on its own after 15 minutes. Run one supervisor per Docker host and namespace.
+- **Isolation**: data is read and written by a short-lived helper (the computer image, `--network none`, all capabilities dropped, read-only root filesystem, 512 MiB, 64 pids) with only that Dot's two volumes mounted. The Docker socket is never exposed to a computer.
+- **Limits**: archive 600 MiB, 500 MiB of file data, 10,000 files, 100 MiB per file. The patched `Bun.serve` accepts bodies up to 600 MiB (Bun's default is 128 MiB) and a 255 s idle timeout. Archives are built in memory, so the practical ceiling is lower on a small host.
+- **Contents**: regular files with their bytes, permission bits (the executable bit is kept) and mtime. Symlinks, hard links, devices and sockets are rejected, except that Chromium's `Singleton*` coordination links are dropped from profiles. Empty directories are not preserved. Leftover `.opendots-b2-*` restore bookkeeping is never exported.
+- **Restore**: the archive is fully decoded and validated before any state changes. It is staged inside the target volume, then committed by moving the old data aside and the new data in. The old data is deleted only after the whole commit succeeds. A failed or cancelled restore moves the old data back, and the commit and rollback steps ignore client disconnects so they cannot stop half way. `full-computer` commits workspace then profile and rolls both back on failure. If cleanup fails after a commit, the restore still succeeds and a warning is logged.
+
+### Formats
+
+`ODBK` is the B2 envelope (header plus AES-256-GCM ciphertext). `ODAR` is the gzip+JSON file archive inside it, exchanged with the supervisor. They are separate formats. The envelope's `archiveFormat` is `json` for `ODAR`; `tar` is only used between the supervisor and its helper and is never stored. `ODAR` stays version 1. Backups made before the supervisor existed carry millisecond timestamps and no `mode`; both are still accepted (timestamps are normalised, mode defaults to `0644`).
+
 ### Quiescent Browser Profile Snapshots
 
 Browser profiles (`/profiles/${botId}`) contain active LevelDB databases, cookies, and session state managed by Chromium:
 
 - **Do not snapshot a running browser while it is actively modifying files.** Archiving a live profile risks capturing mid-write SQLite or LevelDB states, causing corruption upon restore.
-- **Automated Lifecycle**: When taking a `browser-profile` or `full-computer` snapshot, `ComputerService` automatically:
-  1. Prevents new agent operations using per-Dot backup locks.
-  2. Stops the computer process via `provider.stop(dotId)` to flush SQLite and LevelDB write-ahead logs.
-  3. Exports the quiescent profile directory.
-  4. Resumes the computer via `provider.ensure(dotId)` if it was running.
-  5. Surfaces any resume failure clearly without silently leaving the computer offline.
-- Workspace backups (`workspace`) do not stop Chromium because `/workspace` is independent of Chromium profile databases.
+- **Automated lifecycle**: for `browser-profile` and `full-computer`, and for any provider that exports volumes directly (including `workspace`), `ComputerService`:
+  1. Takes a per-Dot backup lock that pauses agent operations.
+  2. Reads the provider's own running state, and stops the computer (gracefully, so Chromium flushes) only if it was running.
+  3. Exports the quiescent volume data.
+  4. Resumes the computer only if this operation stopped it. A resume failure is reported, including when it follows another failure.
+- A configured provider's `exportData` and `importData` are authoritative: a failure is reported and never replaced by the lossy text-file fallback. The fallback is used only when a provider has no export hooks, and only for `workspace`.
 
 ### Verified Restoration & Staging Safety
 
-Restoration executes in a verified, fail-safe sequence:
-
-1. **Cryptographic Validation**: The encrypted backup envelope is retrieved from B2, checking magic bytes (`ODBK`), envelope version, Dot ownership, and AES-256-GCM authentication tag. Plaintext and ciphertext SHA-256 hashes are verified before touching any files.
-2. **Archive Safety Verification**: All archive entry paths are inspected before extraction. Absolute paths, `../` directory traversal attempts, symlink attacks, and zip-bombs exceeding resource budgets (max 500 MB total, max 10,000 files) are rejected outright.
-3. **Quiescent Target Injection**: For browser profiles, running computers are quiesced before restored files are imported.
-4. **Fail-Safe Integrity**: If an archive is corrupt or invalid, the restore fails immediately without modifying or corrupting existing working files.
-5. **Resume**: Once verified and imported, the computer is safely resumed.
+1. **Cryptographic validation**: magic bytes (`ODBK`), version, Dot ownership, backup id, backup type, the AES-256-GCM tag and both SHA-256 digests are verified before anything else.
+2. **Archive validation**: the payload must be a valid `ODAR` document of the requested type (opaque payloads are refused), with safe paths and budgets. Absolute paths, `../`, reserved names, size mismatches and oversized archives are rejected before any state changes.
+3. **Quiescent import**: a running computer is stopped, then the provider applies the payload. Success is reported only after the provider confirms the import. A missing or unconfigured provider is an error, not a restore.
+4. **Fail-safe**: the supervisor stages, swaps and rolls back as described above.
+5. **Resume**: the computer is resumed only if this restore stopped it. If the data was restored but the resume fails, the error says so.
+6. The decrypted payload is never returned to API callers or logged.
 
 ### HTTP API Endpoints
 
@@ -133,11 +157,11 @@ All backup routes are mounted under `/api` and require owner authentication:
 
 ### Provider Integration & Limitations
 
-| Provider                                           | Workspace Backup / Restore                                             | Browser Profile Backup / Restore                                                      | Status                                                             |
-| -------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| **Local Docker Supervisor** (`docker-supervisor`)  | Provider client hooks exist; pinned supervisor export/import routes need implementation and build verification | Browser-profile volume export/import needs real stop/export/restore/resume qualification | **NOT LIVE-QUALIFIED** |
-| **Cloudflare Containers** (`cloudflare-container`) | Supported via workspace file actions                                   | Pending container volume tar export hooks                                             | Partially supported                                                |
-| **Vercel Sandbox / CodeSandbox**                   | Pending filesystem export integration                                  | Pending microVM snapshot export API                                                   | **Pending** (requires remote sandbox provider export/import hooks) |
+| Provider                                           | Workspace Backup / Restore                                                                                                   | Browser Profile Backup / Restore                                            | Status                                                             |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Local Docker Supervisor** (`docker-supervisor`)  | Supervisor routes implemented and verified against the pinned source. Live Docker round trip: see CI `Computer Integration`. | Same. Cookie survival is exercised by `npm run qualify:supervisor-archive`. | **IMPLEMENTED, NOT LIVE-QUALIFIED** until that workflow passes     |
+| **Cloudflare Containers** (`cloudflare-container`) | Supported via workspace file actions                                                                                         | Pending container volume tar export hooks                                   | Partially supported                                                |
+| **Vercel Sandbox / CodeSandbox**                   | Pending filesystem export integration                                                                                        | Pending microVM snapshot export API                                         | **Pending** (requires remote sandbox provider export/import hooks) |
 
 ---
 
@@ -153,12 +177,21 @@ When bucket versioning is enabled on Backblaze B2:
 
 ## 6. Testing & Qualification
 
+### Evidence levels
+
+| Level                          | What it proves                                                                                                                                                         | Where                                                                                                    |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Unit / mocked                  | Logic, authentication ordering, rollback, locking and formats. Docker is faked; the restore shell commands are real.                                                   | `npm test` (`tests/b2-*.test.*`, `tests/docker-supervisor-backup-client.test.ts`)                        |
+| Pinned source                  | The patch applies to the exact OpenBot revision, compiles under strict `tsc`, keeps the routes behind authentication, and the patched app answers requests. No Docker. | `npm run verify:supervisor`                                                                              |
+| Live Docker                    | Real volumes, helper containers and a Chromium cookie.                                                                                                                 | `npm run qualify:supervisor-archive` against a running stack, run by the `Computer Integration` workflow |
+| Live B2 with a mocked computer | B2 object storage and encryption only. **Not** a computer qualification.                                                                                               | `tests/b2-live-storage-mock-provider-qualification.ts`                                                   |
+
 ### Running Automated Unit & Integration Tests
 
 Deterministic unit and integration tests verify B2 adapter operations, encryption, archive safety, lifecycle quiescence, and authenticated HTTP routes:
 
 ```bash
-npx vitest run tests/b2-backup.test.ts tests/b2-computer-integration.test.ts tests/computer.test.ts
+npx vitest run tests/b2-backup.test.ts tests/b2-computer-integration.test.ts tests/b2-supervisor-archive.test.mjs tests/b2-supervisor-core.test.mjs tests/docker-supervisor-backup-client.test.ts tests/computer.test.ts
 ```
 
 ### Running the Live Backblaze B2 Smoke Test

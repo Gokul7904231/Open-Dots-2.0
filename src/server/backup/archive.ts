@@ -21,7 +21,19 @@ export interface StructuredArchive {
     dataBase64: string;
     size: number;
     mtime?: number;
+    mode?: number;
   }>;
+}
+
+export interface ExtractArchiveOptions {
+  /**
+   * Reject anything that is not an ODAR document. Use before applying a payload to a
+   * computer: the lenient default accepts opaque payloads (such as raw smoke-test
+   * bytes) as a single `payload.bin`, which would bypass every path check.
+   */
+  strict?: boolean;
+  /** Require the archive to declare this backup type. */
+  expectedType?: BackupType;
 }
 
 /**
@@ -54,6 +66,7 @@ export function createArchive(
 export function extractArchive(
   archiveBuffer: Buffer,
   destinationDir?: string,
+  options: ExtractArchiveOptions = {},
 ): ArchiveEntry[] {
   if (archiveBuffer.length < 2) {
     throw new Error('Invalid archive: buffer is empty or too short.');
@@ -76,6 +89,9 @@ export function extractArchive(
   try {
     structured = JSON.parse(decompressed.toString('utf8'));
   } catch {
+    if (options.strict) {
+      throw new Error('Backup payload is not a valid ODAR archive.');
+    }
     // If not JSON structured, check if it's a raw tar archive or single-file payload
     return [
       {
@@ -86,6 +102,14 @@ export function extractArchive(
   }
 
   if (structured.magic !== 'ODAR' || structured.version !== 1) {
+    throw new Error('Unsupported or corrupt archive format.');
+  }
+  if (options.expectedType && structured.type !== options.expectedType) {
+    throw new Error(
+      `Backup archive type "${structured.type}" does not match the requested type "${options.expectedType}".`,
+    );
+  }
+  if (!Array.isArray(structured.files)) {
     throw new Error('Unsupported or corrupt archive format.');
   }
 

@@ -148,9 +148,13 @@ async function main() {
       if (type === 'workspace' || type === 'full-computer') {
         virtualFiles.clear();
         for (const entry of entries) {
-          if (type === 'workspace') virtualFiles.set(entry.path, entry.data.toString('utf8'));
+          if (type === 'workspace')
+            virtualFiles.set(entry.path, entry.data.toString('utf8'));
           else if (entry.path.startsWith('workspace/')) {
-            virtualFiles.set(entry.path.slice('workspace/'.length), entry.data.toString('utf8'));
+            virtualFiles.set(
+              entry.path.slice('workspace/'.length),
+              entry.data.toString('utf8'),
+            );
           }
         }
       }
@@ -509,7 +513,9 @@ async function main() {
     console.log(
       '\n================================================================',
     );
-    console.log('B2 STORAGE + MOCK COMPUTER PROVIDER TESTS PASSED. THIS IS NOT REAL DOCKER E2E QUALIFICATION.');
+    console.log(
+      'B2 STORAGE + MOCK COMPUTER PROVIDER TESTS PASSED. THIS IS NOT REAL DOCKER E2E QUALIFICATION.',
+    );
     console.log(
       '================================================================',
     );

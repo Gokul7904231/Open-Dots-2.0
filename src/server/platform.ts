@@ -22,7 +22,11 @@ import {
 import { validateRuntimeScope } from './runtime-scope.js';
 import { learningSelector } from './learning.js';
 import { SetupTelemetry } from './setup-telemetry.js';
-import { b2ConfigFromEnv, B2StorageAdapter, BackupService } from './backup/index.js';
+import {
+  b2ConfigFromEnv,
+  B2StorageAdapter,
+  BackupService,
+} from './backup/index.js';
 
 export class Platform {
   private channelStartupFailed = false;

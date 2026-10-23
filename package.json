@@ -21,7 +21,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests scripts vite.config.ts",
     "format": "prettier --write src tests scripts *.json *.ts *.js index.html public .github Dockerfile \"compose*.yml\" deployment README.md docs .env.example --ignore-unknown",
-    "check-format": "prettier --check src tests scripts *.json *.ts *.js index.html public .github Dockerfile \"compose*.yml\" deployment README.md docs .env.example --ignore-unknown"
+    "check-format": "prettier --check src tests scripts *.json *.ts *.js index.html public .github Dockerfile \"compose*.yml\" deployment README.md docs .env.example --ignore-unknown",
+    "qualify:supervisor-archive": "node --env-file-if-exists=.env scripts/qualify-supervisor-archive.mjs",
+    "verify:supervisor": "node scripts/verify-supervisor-patch.mjs"
   },
   "keywords": [],
   "author": "Atai Barkai",

@@ -29,7 +29,8 @@ async function readLimitedResponse(
     await response.body?.cancel();
     throw new Error('Computer supervisor backup exceeded its size limit.');
   }
-  if (!response.body) throw new Error('Computer supervisor returned an empty backup.');
+  if (!response.body)
+    throw new Error('Computer supervisor returned an empty backup.');
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -259,7 +260,7 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
       );
       if (!response.ok) {
         throw new Error(
-          `Computer supervisor export failed with HTTP ${response.status}.`,
+          `Computer supervisor export failed with HTTP ${response.status}${await this.failureDetail(response)}.`,
         );
       }
       return await readLimitedResponse(response, MAX_BACKUP_TRANSFER_BYTES);
@@ -306,11 +307,37 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
       );
       if (!response.ok) {
         throw new Error(
-          `Computer supervisor import failed with HTTP ${response.status}.`,
+          `Computer supervisor import failed with HTTP ${response.status}${await this.failureDetail(response)}.`,
         );
       }
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * The supervisor's own bounded error string (for example, "Stop the computer before
+   * exporting"). Never includes a token: it is redacted even though the supervisor
+   * does not echo it.
+   */
+  private async failureDetail(response: Response): Promise<string> {
+    try {
+      const text = (await response.text()).slice(0, 2000);
+      const parsed: unknown = JSON.parse(text);
+      const message =
+        parsed && typeof parsed === 'object' && 'error' in parsed
+          ? (parsed as { error: unknown }).error
+          : undefined;
+      if (typeof message !== 'string' || !message) return '';
+      let safe = message.slice(0, 200);
+      for (const secret of [
+        this.config.computerSupervisorToken?.trim(),
+        this.config.computerToken?.trim(),
+      ])
+        if (secret) safe = safe.split(secret).join('[redacted]');
+      return `: ${safe}`;
+    } catch {
+      return '';
     }
   }
 }

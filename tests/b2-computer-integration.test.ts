@@ -176,9 +176,13 @@ function createTestHarness() {
         const files = computerFiles.get(dotId) ?? new Map<string, string>();
         files.clear();
         for (const entry of entries) {
-          if (type === 'workspace') files.set(entry.path, entry.data.toString('utf8'));
+          if (type === 'workspace')
+            files.set(entry.path, entry.data.toString('utf8'));
           else if (entry.path.startsWith('workspace/')) {
-            files.set(entry.path.slice('workspace/'.length), entry.data.toString('utf8'));
+            files.set(
+              entry.path.slice('workspace/'.length),
+              entry.data.toString('utf8'),
+            );
           }
         }
         computerFiles.set(dotId, files);
@@ -543,5 +547,122 @@ describe('B2 Computer Backup & Restore Integration', () => {
       );
       expect(nonExistent.status).toBe(404);
     });
+  });
+});
+
+describe('Provider hook authority and lifecycle recovery', () => {
+  it('does not fall back to lossy text export when the provider export fails, and resumes the computer', async () => {
+    const { service, dotA, mockProvider, computerRunning, storage } =
+      createTestHarness();
+    mockProvider.exportData = vi
+      .fn()
+      .mockRejectedValue(new Error('supervisor export failed with HTTP 500'));
+
+    await expect(service.snapshot(dotA, 'workspace')).rejects.toThrow(
+      /HTTP 500/,
+    );
+    expect(computerRunning.get(dotA)).toBe(true);
+    expect(await storage.listBackups(`backups/${dotA}/`)).toHaveLength(0);
+  });
+
+  it('reports a resume failure that follows a failed export instead of hiding it', async () => {
+    const { service, dotA, mockProvider } = createTestHarness();
+    mockProvider.exportData = vi
+      .fn()
+      .mockRejectedValue(new Error('export broke'));
+    mockProvider.ensure = vi.fn().mockRejectedValue(new Error('daemon down'));
+
+    await expect(service.snapshot(dotA, 'browser-profile')).rejects.toThrow(
+      /export broke.*could not be resumed: daemon down/s,
+    );
+  });
+
+  it('a failed provider import keeps the original error, never reports restored, and resumes the computer', async () => {
+    const { service, dotA, mockProvider, computerRunning, computerFiles } =
+      createTestHarness();
+    computerFiles.get(dotA)!.set('keep.txt', 'original');
+    const backup = await service.snapshot(dotA, 'workspace');
+    mockProvider.importData = vi
+      .fn()
+      .mockRejectedValue(new Error('supervisor import failed with HTTP 409'));
+    computerRunning.set(dotA, true);
+
+    await expect(
+      service.restore(dotA, backup.backupId, 'workspace'),
+    ).rejects.toThrow(/HTTP 409/);
+    expect(computerRunning.get(dotA)).toBe(true);
+    expect(computerFiles.get(dotA)!.get('keep.txt')).toBe('original');
+  });
+
+  it('says so when the data was restored but the computer cannot resume', async () => {
+    const { service, dotA, mockProvider } = createTestHarness();
+    const backup = await service.snapshot(dotA, 'workspace');
+    mockProvider.ensure = vi.fn().mockRejectedValue(new Error('no capacity'));
+
+    await expect(
+      service.restore(dotA, backup.backupId, 'workspace'),
+    ).rejects.toThrow(
+      /was restored but the computer failed to resume: no capacity/,
+    );
+  });
+
+  it('does not stop or restart a computer that was already stopped', async () => {
+    const { service, dotA, computerRunning, lifecycleLog } =
+      createTestHarness();
+    const backup = await service.snapshot(dotA, 'workspace');
+    computerRunning.set(dotA, false);
+    lifecycleLog.length = 0;
+
+    await service.restore(dotA, backup.backupId, 'workspace');
+    expect(lifecycleLog).toEqual([`importData:${dotA}:workspace`]);
+    expect(computerRunning.get(dotA)).toBe(false);
+  });
+
+  it('refuses a payload that is not an ODAR archive, without applying anything', async () => {
+    const { service, dotA, backupService, mockProvider } = createTestHarness();
+    mockProvider.importData = vi.fn();
+    const raw = await backupService.createBackup({
+      dotId: dotA,
+      backupType: 'workspace',
+      plaintext: Buffer.from('opaque bytes that are not an archive'),
+      archiveFormat: 'raw',
+    });
+
+    await expect(
+      service.restore(dotA, raw.backupId, 'workspace'),
+    ).rejects.toThrow(/not a valid ODAR archive/);
+    expect(mockProvider.importData).not.toHaveBeenCalled();
+  });
+
+  it('refuses an archive whose declared type differs from the requested restore type', async () => {
+    const { service, dotA, backupService, mockProvider } = createTestHarness();
+    mockProvider.importData = vi.fn();
+    const mismatched = await backupService.createBackup({
+      dotId: dotA,
+      backupType: 'workspace',
+      plaintext: createArchive('browser-profile', []),
+    });
+
+    await expect(
+      service.restore(dotA, mismatched.backupId, 'workspace'),
+    ).rejects.toThrow(/does not match the requested type/);
+    expect(mockProvider.importData).not.toHaveBeenCalled();
+  });
+
+  it('refuses to report success when no provider can apply the backup', async () => {
+    const { service, dotA, mockProvider } = createTestHarness();
+    const backup = await service.snapshot(dotA, 'workspace');
+    Object.defineProperty(mockProvider, 'configured', { get: () => false });
+
+    await expect(
+      service.restore(dotA, backup.backupId, 'workspace'),
+    ).rejects.toThrow(/not configured/);
+  });
+
+  it('never returns decrypted backup contents from restore', async () => {
+    const { service, dotA } = createTestHarness();
+    const backup = await service.snapshot(dotA, 'workspace');
+    const result = await service.restore(dotA, backup.backupId, 'workspace');
+    expect(Object.keys(result)).not.toContain('plaintext');
   });
 });
