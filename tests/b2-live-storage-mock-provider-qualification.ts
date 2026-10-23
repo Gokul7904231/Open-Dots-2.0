@@ -111,26 +111,49 @@ async function main() {
     },
     async exportData(dotId, type) {
       lifecycleEvents.push(`exportData:${dotId}:${type}`);
+      if (type === 'workspace') {
+        return createArchive(
+          'workspace',
+          Array.from(virtualFiles.entries()).map(([path, content]) => ({
+            path,
+            data: Buffer.from(content, 'utf8'),
+          })),
+        );
+      }
       if (type === 'browser-profile') {
         return createArchive('browser-profile', [
           {
             path: 'Default/Cookies',
             data: Buffer.from(
-              'test-auth-session-cookie=live-e2e-value',
+              'test-auth-session-cookie=mock-only-value',
               'utf8',
             ),
           },
         ]);
       }
+      if (type === 'full-computer') {
+        return createArchive(
+          'full-computer',
+          Array.from(virtualFiles.entries()).map(([path, content]) => ({
+            path: `workspace/${path}`,
+            data: Buffer.from(content, 'utf8'),
+          })),
+        );
+      }
       throw new Error(`Provider does not handle ${type}`);
     },
     async importData(dotId, type, data) {
       lifecycleEvents.push(`importData:${dotId}:${type}`);
-      if (type === 'browser-profile') {
-        extractArchive(data);
-        return;
+      const entries = extractArchive(data);
+      if (type === 'workspace' || type === 'full-computer') {
+        virtualFiles.clear();
+        for (const entry of entries) {
+          if (type === 'workspace') virtualFiles.set(entry.path, entry.data.toString('utf8'));
+          else if (entry.path.startsWith('workspace/')) {
+            virtualFiles.set(entry.path.slice('workspace/'.length), entry.data.toString('utf8'));
+          }
+        }
       }
-      throw new Error(`Provider does not handle ${type}`);
     },
   };
 
