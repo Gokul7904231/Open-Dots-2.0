@@ -313,19 +313,19 @@ export function createBackupSupervisor({
         entries
           .find((entry) => entry.path === filename)
           ?.data.toString('utf8')
-          .replace(/[\\r\\n\\t]+/g, ' ')
-          .replace(/\\s+/g, ' ')
+          .replace(/[\r\n\t]+/g, ' ')
+          .replace(/\s+/g, ' ')
           .trim()
           .slice(-1500) ?? '[helper output was unavailable]'
       );
     } catch (error) {
       if (signal?.aborted)
         throw new BackupRouteError(499, 'Backup operation cancelled.');
-      return (
-        '[helper output could not be read: ' +
-        (error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200)) +
-        ']'
-      );
+      const detail =
+        error instanceof Error
+          ? error.message.slice(0, 200)
+          : String(error).slice(0, 200);
+      return '[helper output could not be read: ' + detail + ']';
     }
   }
 
