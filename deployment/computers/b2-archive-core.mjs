@@ -515,12 +515,8 @@ export function createBackupSupervisor({
       // bounded, content-free Docker error in supervisor logs for live qualification.
       const detail =
         error instanceof Error
-          ? error.message
-              .replace(/[\\r\\n\\t]+/g, ' ')
-              .slice(0, 400)
-          : String(error)
-              .replace(/[\\r\\n\\t]+/g, ' ')
-              .slice(0, 400);
+          ? error.message.replace(/[\r\n\t]+/g, ' ').slice(0, 400)
+          : String(error).replace(/[\r\n\t]+/g, ' ').slice(0, 400);
       logHelperFailure(
         'Backup helper archive upload failed (target=' +
           stagePath +
