@@ -18,6 +18,7 @@ import {
 } from '../src/server/backup/index.js';
 import { ComputerService } from '../src/server/computer-service.js';
 import { WorkspaceStore } from '../src/server/workspace.js';
+import type { ComputerProvider } from '../src/server/computer-provider.js';
 
 describe('B2 Configuration Validation', () => {
   it('returns null when no B2 configuration is present', () => {
@@ -479,13 +480,27 @@ describe('ComputerService Backup Lifecycle Integration', () => {
       runtimeUrl: 'http://localhost',
     };
 
+    const mockProvider: ComputerProvider = {
+      id: 'b2-test-provider',
+      configured: true,
+      async get(dotId) {
+        return { dotId, status: 'running', endpoint: 'http://127.0.0.1:4100' };
+      },
+      async ensure(dotId) {
+        return { dotId, status: 'running', endpoint: 'http://127.0.0.1:4100' };
+      },
+      async stop() {},
+      async importData() {},
+    };
+
     const service = new ComputerService(
       workspace,
-      config,
+      { ...config, computerToken: 'test-only-computer-token-1234567890' },
       () => false,
       fetch,
       5000,
-      mockBackupService,
+      mockProvider,
+      mockBackupService as unknown as BackupService,
     );
 
     // Snapshot
