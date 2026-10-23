@@ -41,6 +41,8 @@ jobs:
       COMPUTER_TOKEN: opendots-ci-computer-token-not-for-production-2026
       COMPUTER_NAMESPACE: opendotsci
       COMPUTER_PROVIDER: docker-supervisor
+      COMPUTER_SUPERVISOR_URL: http://127.0.0.1:4312
+      COMPUTER_IMAGE: opendots-computer:b6932d3
       COMPUTER_MEMORY_BYTES: '2147483648'
       OPENDOTS_BASE_URL: http://127.0.0.1:4310
       COMPUTER_QUALIFY_TIMEOUT_MS: '90000'
@@ -79,6 +81,9 @@ jobs:
 
       - name: Qualify browser, files, and stop/start persistence
         run: node --env-file-if-exists=.env scripts/qualify-computer.mjs
+
+      - name: Qualify real supervisor workspace and profile archive export/import
+        run: node --env-file-if-exists=.env scripts/qualify-supervisor-archive.mjs
 
       - name: Collect service logs on failure
         if: failure()
