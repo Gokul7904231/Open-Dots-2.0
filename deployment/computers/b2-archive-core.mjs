@@ -513,13 +513,12 @@ export function createBackupSupervisor({
       // Dockerode's putArchive failure is not a shell command, so runHelper cannot
       // report it. Keep the HTTP response generic, but expose the failing phase and
       // bounded, content-free Docker error in supervisor logs for live qualification.
-      const detail = (
-        error instanceof Error ? error.message : String(error)
-      )
-        .replaceAll(String.fromCharCode(13), ' ')
-        .replaceAll(String.fromCharCode(10), ' ')
-        .replaceAll(String.fromCharCode(9), ' ')
-        .slice(0, 400);
+      const detail =
+        (error instanceof Error ? error.message : String(error))
+          .replaceAll(String.fromCharCode(13), ' ')
+          .replaceAll(String.fromCharCode(10), ' ')
+          .replaceAll(String.fromCharCode(9), ' ')
+          .slice(0, 400);
       logHelperFailure(
         'Backup helper archive upload failed (target=' +
           stagePath +
