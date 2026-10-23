@@ -14,7 +14,6 @@ import {
   intelligenceWsUrlFromEnv,
   type PlatformConfig,
 } from './platform-config.js';
-import { getMongoDb, isMongoConfigured, closeMongo } from './mongodb.js';
 const host = process.env.HOST ?? '127.0.0.1';
 const port = Number(process.env.PORT ?? 4310);
 const ownerToken = process.env.OWNER_TOKEN;
@@ -125,15 +124,6 @@ app.use('/*', serveStatic({ root: './dist/client' }));
 app.get('*', serveStatic({ path: './dist/client/index.html' }));
 const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
   console.log(`OpenDots template listening on http://${host}:${info.port}`);
-  if (isMongoConfigured()) {
-    getMongoDb()
-      .then(() => {
-        console.log('[MongoDB] Connected to MongoDB Atlas successfully.');
-      })
-      .catch((error) => {
-        console.error('[MongoDB] Failed to connect to MongoDB Atlas:', error);
-      });
-  }
   runner.start();
   void platform
     .start()
@@ -148,9 +138,6 @@ const shutdown = createShutdown({
   stopRunner: () => runner.stop(),
   stopPlatform: () => platform.stop(),
   closeServer: async () => {
-    if (isMongoConfigured()) {
-      await closeMongo().catch(() => {});
-    }
     return new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
