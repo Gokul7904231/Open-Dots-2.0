@@ -371,9 +371,12 @@ export function createBackupSupervisor({
 
   async function helperPathExists(helper, path, signal) {
     try {
-      return (
-        (await execExitCode(helper, 'test -d ' + shellPath(path), signal)).exitCode === 0
+      const result = await execExitCode(
+        helper,
+        'test -d ' + shellPath(path),
+        signal,
       );
+      return result.exitCode === 0;
     } catch (error) {
       if (error instanceof BackupRouteError) throw error;
       throw new BackupRouteError(
