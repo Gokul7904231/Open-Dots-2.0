@@ -41,7 +41,32 @@ export interface BackupMetadata {
   encryptedSha256?: string;
 }
 
+export interface BackupStreamReadResult {
+  /** Backpressure-aware stream. Consumers must finish iteration to verify EOF. */
+  stream: AsyncIterable<Uint8Array>;
+  metadata?: Record<string, string>;
+  versionId?: string;
+  /** Releases the response body and timeout if iteration never starts or ends early. */
+  cancel?: () => Promise<void> | void;
+}
+
 export interface StorageAdapter {
+  /**
+   * Optional streaming APIs are introduced alongside the V1 Buffer methods.
+   * They remain optional while non-B2/test adapters migrate incrementally.
+   */
+  writeBackupStream?(
+    key: string,
+    data: AsyncIterable<Uint8Array>,
+    metadata?: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<{ key: string; eTag?: string; versionId?: string }>;
+
+  readBackupStream?(
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<BackupStreamReadResult>;
+
   writeBackup(
     key: string,
     data: Buffer,

@@ -1,5 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import {
+  decryptOdarStreamV2,
+  encryptOdarStreamV2,
+  type OdarStreamV2Identity,
+} from './odar-stream-v2.js';
+import {
   decryptPayload,
   encryptPayload,
   resolveEncryptionKey,
@@ -25,6 +30,48 @@ export interface CreateBackupOptions {
 export interface RestoredBackup {
   envelope: BackupEnvelope;
   plaintext: Buffer;
+}
+
+/**
+ * The source must already be an incremental gzip-compressed tar stream. V2 deliberately
+ * does not accept a complete Buffer or build an archive in memory.
+ */
+export interface CreateStreamingBackupOptions {
+  dotId: string;
+  backupType: BackupType;
+  source: AsyncIterable<Uint8Array>;
+  signal?: AbortSignal;
+}
+
+export interface StreamingBackupReceipt {
+  formatVersion: 2;
+  dotId: string;
+  backupId: string;
+  createdAt: number;
+  backupType: BackupType;
+  key: string;
+  eTag?: string;
+  versionId?: string;
+}
+
+/**
+ * Implementations must write only to isolated staging. commit() may be called
+ * only after all chunks are written and validate() succeeds; rollback() must
+ * never alter the pre-restore live state.
+ */
+export interface StreamingRestoreStage<TResult> {
+  write(chunk: Uint8Array): Promise<void>;
+  validate(): Promise<void>;
+  commit(): Promise<TResult>;
+  rollback(): Promise<void>;
+}
+
+export interface RestoreStreamingBackupOptions<TResult> {
+  dotId: string;
+  backupId: string;
+  backupType: BackupType;
+  createStage: () => Promise<StreamingRestoreStage<TResult>>;
+  signal?: AbortSignal;
 }
 
 export class BackupService {
@@ -95,6 +142,161 @@ export class BackupService {
     );
 
     return envelope;
+  }
+
+  /**
+   * Creates an opt-in ODAR-Stream v2 backup. The supplied source must be an
+   * incremental gzip-compressed tar stream; storage must support bounded stream uploads.
+   * Existing V1 createBackup() is intentionally unchanged.
+   */
+  async createStreamingBackup(
+    options: CreateStreamingBackupOptions,
+  ): Promise<StreamingBackupReceipt> {
+    if (!this.storage.writeBackupStream) {
+      throw new Error(
+        'The configured storage adapter does not support streaming backups.',
+      );
+    }
+    if (
+      !['workspace', 'browser-profile', 'full-computer'].includes(
+        options.backupType,
+      )
+    ) {
+      throw new Error('Unsupported streaming backup type.');
+    }
+
+    const backupId = randomBytes(16).toString('hex');
+    const createdAt = Date.now();
+    const objectKey = buildBackupKey(
+      options.dotId,
+      options.backupType,
+      backupId,
+    );
+    const identity: OdarStreamV2Identity = {
+      dotId: options.dotId,
+      backupId,
+      archiveType: options.backupType,
+    };
+    const encryptedStream = encryptOdarStreamV2(
+      options.source,
+      this.getKey(),
+      identity,
+      { signal: options.signal },
+    );
+    const stored = await this.storage.writeBackupStream(
+      objectKey,
+      encryptedStream,
+      {
+        'backup-version': '2',
+        'backup-format': 'odar-stream-v2',
+        'dot-id': options.dotId,
+        'backup-id': backupId,
+        'backup-type': options.backupType,
+        'created-at': String(createdAt),
+      },
+      options.signal,
+    );
+
+    return {
+      formatVersion: 2,
+      dotId: options.dotId,
+      backupId,
+      createdAt,
+      backupType: options.backupType,
+      key: stored.key,
+      eTag: stored.eTag,
+      versionId: stored.versionId,
+    };
+  }
+
+  /**
+   * Restores a V2 stream through a caller-provided transaction stage. The
+   * decoder yields authenticated frames to staging, then validates the final
+   * manifest and EOF before archive validation or commit. V1 restore remains
+   * in restoreBackup() and is not silently routed through this decoder.
+   */
+  async restoreStreamingBackup<TResult>(
+    options: RestoreStreamingBackupOptions<TResult>,
+  ): Promise<TResult> {
+    if (!this.storage.readBackupStream) {
+      throw new Error(
+        'The configured storage adapter does not support streaming restores.',
+      );
+    }
+    if (
+      !['workspace', 'browser-profile', 'full-computer'].includes(
+        options.backupType,
+      )
+    ) {
+      throw new Error('Unsupported streaming backup type.');
+    }
+
+    const objectKey = buildBackupKey(
+      options.dotId,
+      options.backupType,
+      options.backupId,
+    );
+    const stored = await this.storage.readBackupStream(
+      objectKey,
+      options.signal,
+    );
+    const metadata = stored.metadata ?? {};
+    const identityMetadataMatches =
+      metadata['backup-version'] === '2' &&
+      metadata['backup-format'] === 'odar-stream-v2' &&
+      metadata['dot-id'] === options.dotId &&
+      metadata['backup-id'] === options.backupId &&
+      metadata['backup-type'] === options.backupType;
+    if (!identityMetadataMatches) {
+      await stored.cancel?.();
+      throw new Error(
+        'Requested ODAR-Stream v2 restore, but storage metadata does not match the requested V2 backup identity.',
+      );
+    }
+
+    let stage: StreamingRestoreStage<TResult> | undefined;
+    try {
+      stage = await options.createStage();
+      const identity: OdarStreamV2Identity = {
+        dotId: options.dotId,
+        backupId: options.backupId,
+        archiveType: options.backupType,
+      };
+
+      const plaintext = decryptOdarStreamV2(
+        stored.stream,
+        this.getKey(),
+        identity,
+        { signal: options.signal },
+      );
+      for await (const chunk of plaintext) {
+        if (options.signal?.aborted) {
+          throw new Error('ODAR-Stream v2 restore was cancelled.');
+        }
+        await stage.write(chunk);
+      }
+      await stage.validate();
+      return await stage.commit();
+    } catch (error) {
+      if (stored.cancel) {
+        try {
+          await stored.cancel();
+        } catch {
+          // Ignore cancel cleanup failures while reporting root error
+        }
+      }
+      if (stage) {
+        try {
+          await stage.rollback();
+        } catch {
+          throw new Error(
+            'ODAR-Stream v2 restore failed and staging rollback needs operator review.',
+            { cause: error },
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   /**

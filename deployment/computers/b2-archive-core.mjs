@@ -5,6 +5,7 @@ import {
   createTarArchive,
   decodeOdar,
   encodeOdar,
+  encodeTarGzip,
   parseTarArchive,
 } from './b2-archive-format.mjs';
 
@@ -200,8 +201,9 @@ export function createBackupSupervisor({
     return parseTarArchive(tar, path, archiveType);
   }
 
-  async function exportComputerData(names, rawType, signal) {
+  async function exportComputerData(names, rawType, signal, options = {}) {
     const type = safeBackupType(rawType);
+    const format = options?.format || 'odar-v1';
     const info = await inspectOwnedComputer(names);
     if (info.State?.Running) {
       throw new BackupRouteError(
@@ -258,6 +260,9 @@ export function createBackupSupervisor({
               })),
             );
           }
+        }
+        if (format === 'gzip-tar-v1') {
+          return encodeTarGzip(type, entries);
         }
         return encodeOdar(type, entries);
       },
@@ -881,11 +886,13 @@ export function createBackupSupervisor({
         const parsed = resolve(context.req.param('botId'));
         if (!parsed.ok) return context.json({ error: parsed.reason }, 400);
         const type = safeBackupType(context.req.query('type'));
+        const format = context.req.query('format') || 'odar-v1';
         return await withBackupLock(parsed.names.botId, async () => {
           const archive = await exportComputerData(
             parsed.names,
             type,
             context.req.raw.signal,
+            { format },
           );
           return context.body(archive, 200, {
             'Content-Type': 'application/octet-stream',

@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { z } from 'zod';
 import type { PlatformConfig } from './platform-config.js';
 import type {
@@ -315,7 +316,138 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
     }
   }
 
+  async exportDataStream(
+    dotId: string,
+    type: BackupType,
+    signal?: AbortSignal,
+  ): Promise<AsyncIterable<Uint8Array>> {
+    this.requireDotId(dotId);
+    if (!this.configured)
+      throw new Error('Computer provider is not configured.');
+    const base = this.config.computerSupervisorUrl!.trim().replace(/\/$/, '');
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.max(this.deadlineMs, BACKUP_TRANSFER_TIMEOUT_MS),
+    );
+    const combined = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+
+    let response: Response;
+    try {
+      response = await this.transport(
+        `${base}/computers/${dotId}/export?type=${encodeURIComponent(type)}&format=gzip-tar-v1`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.config.computerSupervisorToken!.trim()}`,
+          },
+          redirect: 'error',
+          signal: combined,
+        },
+      );
+    } catch (err) {
+      clearTimeout(timeout);
+      throw err;
+    }
+
+    if (!response.ok) {
+      clearTimeout(timeout);
+      throw new Error(
+        `Computer supervisor export failed with HTTP ${response.status}${await this.failureDetail(response)}.`,
+      );
+    }
+
+    const declaredLength = Number(response.headers.get('content-length') ?? '');
+    if (
+      Number.isFinite(declaredLength) &&
+      declaredLength > MAX_BACKUP_TRANSFER_BYTES
+    ) {
+      clearTimeout(timeout);
+      await response.body?.cancel();
+      throw new Error('Computer supervisor backup exceeded its size limit.');
+    }
+    if (!response.body) {
+      clearTimeout(timeout);
+      throw new Error('Computer supervisor returned an empty backup.');
+    }
+
+    const reader = response.body.getReader();
+    let total = 0;
+    return (async function* () {
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          total += value.length;
+          if (total > MAX_BACKUP_TRANSFER_BYTES) {
+            await reader.cancel();
+            throw new Error(
+              'Computer supervisor backup exceeded its size limit.',
+            );
+          }
+          yield value;
+        }
+      } finally {
+        clearTimeout(timeout);
+        reader.releaseLock();
+      }
+    })();
+  }
+
+  async importDataStream(
+    dotId: string,
+    type: BackupType,
+    stream: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    this.requireDotId(dotId);
+    if (!this.configured)
+      throw new Error('Computer provider is not configured.');
+    const base = this.config.computerSupervisorUrl!.trim().replace(/\/$/, '');
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.max(this.deadlineMs, BACKUP_TRANSFER_TIMEOUT_MS),
+    );
+    const combined = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+
+    try {
+      const webStream =
+        stream instanceof ReadableStream
+          ? stream
+          : Readable.toWeb(Readable.from(stream));
+
+      const response = await this.transport(
+        `${base}/computers/${dotId}/import?type=${encodeURIComponent(type)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            Authorization: `Bearer ${this.config.computerSupervisorToken!.trim()}`,
+          },
+          body: webStream as BodyInit,
+          // @ts-expect-error duplex is required for streaming request bodies in Node.js fetch
+          duplex: 'half',
+          redirect: 'error',
+          signal: combined,
+        },
+      );
+      if (!response.ok) {
+        throw new Error(
+          `Computer supervisor import failed with HTTP ${response.status}${await this.failureDetail(response)}.`,
+        );
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   /**
+
    * The supervisor's own bounded error string (for example, "Stop the computer before
    * exporting"). Never includes a token: it is redacted even though the supervisor
    * does not echo it.

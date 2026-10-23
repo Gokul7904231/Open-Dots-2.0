@@ -117,4 +117,80 @@ describe('Docker supervisor backup client', () => {
       provider(transport).exportData('dot-1', 'workspace'),
     ).rejects.toThrow(/redirect/);
   });
+
+  it('streams export data in chunks with backpressure and size limits', async () => {
+    const chunk1 = new Uint8Array([1, 2, 3]);
+    const chunk2 = new Uint8Array([4, 5, 6]);
+    const readable = new ReadableStream({
+      start(controller) {
+        controller.enqueue(chunk1);
+        controller.enqueue(chunk2);
+        controller.close();
+      },
+    });
+    const transport = vi.fn(async () => new Response(readable));
+    const stream = await provider(transport).exportDataStream!(
+      'dot-1',
+      'workspace',
+    );
+    const received: Uint8Array[] = [];
+    for await (const chunk of stream) {
+      received.push(chunk);
+    }
+    expect(Buffer.concat(received)).toEqual(Buffer.from([1, 2, 3, 4, 5, 6]));
+    const [url, init] = transport.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe(
+      'http://127.0.0.1:4312/computers/dot-1/export?type=workspace&format=gzip-tar-v1',
+    );
+    expect(init.method).toBe('GET');
+  });
+
+  it('streams import data to supervisor import route', async () => {
+    const transport = vi.fn(async () => Response.json({ imported: true }));
+    async function* source() {
+      yield new Uint8Array([10, 20]);
+      yield new Uint8Array([30, 40]);
+    }
+    await provider(transport).importDataStream!(
+      'dot-1',
+      'browser-profile',
+      source(),
+    );
+    const [url, init] = transport.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe(
+      'http://127.0.0.1:4312/computers/dot-1/import?type=browser-profile',
+    );
+    expect(init.method).toBe('POST');
+    expect(init.headers).toMatchObject({
+      'Content-Type': 'application/octet-stream',
+      Authorization: `Bearer ${config.computerSupervisorToken}`,
+    });
+  });
+
+  it('rejects exportDataStream when stream exceeds transfer limit', async () => {
+    const largeChunk = new Uint8Array(350 * 1024 * 1024);
+    const readable = new ReadableStream({
+      start(controller) {
+        controller.enqueue(largeChunk);
+        controller.enqueue(largeChunk);
+        controller.close();
+      },
+    });
+    const transport = vi.fn(async () => new Response(readable));
+    const stream = await provider(transport).exportDataStream!(
+      'dot-1',
+      'workspace',
+    );
+    await expect(async () => {
+      for await (const chunk of stream) {
+        void chunk;
+      }
+    }).rejects.toThrow(/size limit/);
+  });
 });
