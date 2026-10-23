@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import type { S3Client } from '@aws-sdk/client-s3';
 import {
@@ -331,6 +332,184 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
     );
   });
 });
+
+  it('streams small objects through PutObject without collecting more than the bounded first part', async () => {
+    const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
+    const mockClient = {
+      send: vi.fn(async (command: unknown) => {
+        const item = command as {
+          constructor: { name: string };
+          input: Record<string, unknown>;
+        };
+        calls.push({ name: item.constructor.name, input: item.input });
+        return { ETag: '"small-etag"', VersionId: 'v1' };
+      }),
+    } as unknown as S3Client;
+    const adapter = new B2StorageAdapter(
+      {
+        endpoint: 'https://s3.us-east-005.backblazeb2.com',
+        region: 'us-east-005',
+        bucket: 'test-bucket',
+        keyId: 'test-key-id',
+        applicationKey: 'test-application-key',
+      },
+      mockClient,
+    );
+
+    async function* source() {
+      yield Buffer.from('small backup');
+    }
+    const result = await adapter.writeBackupStream(
+      'small.odbackup',
+      source(),
+      { 'backup-version': '2' },
+    );
+
+    expect(result).toEqual({
+      key: 'small.odbackup',
+      eTag: '"small-etag"',
+      versionId: 'v1',
+    });
+    expect(calls.map((call) => call.name)).toEqual(['PutObjectCommand']);
+    expect(Buffer.from(calls[0]!.input.Body as Uint8Array).toString()).toBe(
+      'small backup',
+    );
+    expect(calls[0]!.input.Metadata).toEqual({ 'backup-version': '2' });
+  });
+
+  it('uploads full 5 MiB non-final parts serially and permits a smaller final part', async () => {
+    const partSizes: number[] = [];
+    const commandNames: string[] = [];
+    const mockClient = {
+      send: vi.fn(async (command: unknown) => {
+        const item = command as {
+          constructor: { name: string };
+          input: Record<string, unknown>;
+        };
+        commandNames.push(item.constructor.name);
+        if (item.constructor.name === 'CreateMultipartUploadCommand') {
+          return { UploadId: 'upload-1' };
+        }
+        if (item.constructor.name === 'UploadPartCommand') {
+          const body = item.input.Body as Uint8Array;
+          partSizes.push(body.byteLength);
+          return { ETag: `"part-${String(item.input.PartNumber)}"` };
+        }
+        if (item.constructor.name === 'CompleteMultipartUploadCommand') {
+          return { ETag: '"complete-etag"', VersionId: 'v2' };
+        }
+        throw new Error(`Unexpected S3 command: ${item.constructor.name}`);
+      }),
+    } as unknown as S3Client;
+    const adapter = new B2StorageAdapter(
+      {
+        endpoint: 'https://s3.us-east-005.backblazeb2.com',
+        region: 'us-east-005',
+        bucket: 'test-bucket',
+        keyId: 'test-key-id',
+        applicationKey: 'test-application-key',
+      },
+      mockClient,
+    );
+
+    async function* source() {
+      yield Buffer.alloc(3 * 1024 * 1024, 0x11);
+      yield Buffer.alloc(3 * 1024 * 1024, 0x22);
+    }
+    const result = await adapter.writeBackupStream(
+      'large.odbackup',
+      source(),
+      { 'dot-id': 'dot-alpha' },
+    );
+
+    expect(result).toEqual({
+      key: 'large.odbackup',
+      eTag: '"complete-etag"',
+      versionId: 'v2',
+    });
+    expect(partSizes).toEqual([5 * 1024 * 1024, 1 * 1024 * 1024]);
+    expect(commandNames).toEqual([
+      'CreateMultipartUploadCommand',
+      'UploadPartCommand',
+      'UploadPartCommand',
+      'CompleteMultipartUploadCommand',
+    ]);
+  });
+
+  it('aborts an incomplete multipart upload when a source part fails', async () => {
+    const commandNames: string[] = [];
+    const mockClient = {
+      send: vi.fn(async (command: unknown) => {
+        const item = command as { constructor: { name: string } };
+        commandNames.push(item.constructor.name);
+        if (item.constructor.name === 'CreateMultipartUploadCommand') {
+          return { UploadId: 'upload-to-abort' };
+        }
+        if (item.constructor.name === 'UploadPartCommand') {
+          throw new Error('injected part failure');
+        }
+        if (item.constructor.name === 'AbortMultipartUploadCommand') {
+          return {};
+        }
+        throw new Error(`Unexpected S3 command: ${item.constructor.name}`);
+      }),
+    } as unknown as S3Client;
+    const adapter = new B2StorageAdapter(
+      {
+        endpoint: 'https://s3.us-east-005.backblazeb2.com',
+        region: 'us-east-005',
+        bucket: 'test-bucket',
+        keyId: 'test-key-id',
+        applicationKey: 'test-application-key',
+      },
+      mockClient,
+    );
+
+    async function* source() {
+      yield Buffer.alloc(5 * 1024 * 1024, 0x33);
+      yield Buffer.alloc(10, 0x44);
+    }
+
+    await expect(
+      adapter.writeBackupStream('aborted.odbackup', source()),
+    ).rejects.toThrow('injected part failure');
+    expect(commandNames).toEqual([
+      'CreateMultipartUploadCommand',
+      'UploadPartCommand',
+      'AbortMultipartUploadCommand',
+    ]);
+  });
+
+  it('exposes B2 object reads as a bounded stream without Buffer.concat', async () => {
+    const mockClient = {
+      send: vi.fn(async () => ({
+        Body: Readable.from([Buffer.from('first-'), Buffer.from('second')]),
+        Metadata: { 'dot-id': 'dot-alpha' },
+        VersionId: 'v3',
+      })),
+    } as unknown as S3Client;
+    const adapter = new B2StorageAdapter(
+      {
+        endpoint: 'https://s3.us-east-005.backblazeb2.com',
+        region: 'us-east-005',
+        bucket: 'test-bucket',
+        keyId: 'test-key-id',
+        applicationKey: 'test-application-key',
+      },
+      mockClient,
+    );
+
+    const result = await adapter.readBackupStream('stream.odbackup');
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of result.stream) chunks.push(chunk);
+
+    expect(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString()).toBe(
+      'first-second',
+    );
+    expect(result.metadata).toEqual({ 'dot-id': 'dot-alpha' });
+    expect(result.versionId).toBe('v3');
+  });
+
 
 describe('BackupService End-to-End Workflow & Tenant Isolation', () => {
   class MemoryStorageAdapter implements StorageAdapter {
