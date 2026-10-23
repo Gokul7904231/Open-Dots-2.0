@@ -49,4 +49,17 @@ export interface ComputerProvider {
     data: Buffer,
     signal?: AbortSignal,
   ): Promise<void>;
+  /** Optional provider-level streaming export for durable volume state. */
+  exportDataStream?(
+    dotId: string,
+    type: BackupType,
+    signal?: AbortSignal,
+  ): Promise<AsyncIterable<Uint8Array>>;
+  /** Optional provider-level streaming import to restore durable volume state. */
+  importDataStream?(
+    dotId: string,
+    type: BackupType,
+    stream: AsyncIterable<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<void>;
 }

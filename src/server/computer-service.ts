@@ -27,6 +27,7 @@ import {
   type ArchiveEntry,
   type BackupService,
   type BackupType,
+  type StreamingBackupReceipt,
 } from './backup/index.js';
 
 export class ComputerService {
@@ -573,6 +574,225 @@ export class ComputerService {
       } catch (error) {
         // A failed import leaves the previous data in place (the supervisor rolls back),
         // so bring a computer this restore stopped back up. Report if that also fails.
+        if (stoppedForRestore) {
+          try {
+            await this.provider.ensure(id, signal);
+          } catch (resumeErr) {
+            throw new Error(
+              `${error instanceof Error ? error.message : String(error)} Additionally, the computer could not be resumed: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
+          }
+        }
+        throw error;
+      } finally {
+        this.backupLocks.delete(id);
+      }
+    });
+  }
+
+  /**
+   * Opt-in streaming backup creation for ODAR-Stream v2.
+   * Pulls an incremental data stream from the provider without buffering the complete object in memory.
+   */
+  async snapshotStreaming(
+    id: string,
+    type: BackupType = 'workspace',
+    signal?: AbortSignal,
+  ): Promise<StreamingBackupReceipt> {
+    this.requireDot(id);
+    if (!this.backups) {
+      throw new Error(
+        'Durable backup service is not configured. Configure B2 storage credentials and OPENDOTS_BACKUP_ENCRYPTION_KEY.',
+      );
+    }
+    if (!this.provider.configured || !this.provider.exportDataStream) {
+      throw new Error(
+        `Computer provider "${this.provider.id}" does not support streaming exports.`,
+      );
+    }
+    return this.audited(id, `backup_${type}`, 'owner', async () => {
+      if (this.backupLocks.has(id)) {
+        throw new Error(
+          `Another backup or restore operation is already in progress for Dot ${id}.`,
+        );
+      }
+      this.backupLocks.add(id);
+
+      let stoppedForSnapshot = false;
+      try {
+        const wasRunning = await this.isRunning(id, signal);
+        if (wasRunning) {
+          stoppedForSnapshot = true;
+          await this.provider.stop(id, signal);
+        }
+
+        const sourceStream = await this.provider.exportDataStream!(
+          id,
+          type,
+          signal,
+        );
+
+        const receipt = await this.backups!.createStreamingBackup({
+          dotId: id,
+          backupType: type,
+          source: sourceStream,
+          signal,
+        });
+
+        if (stoppedForSnapshot) {
+          try {
+            await this.provider.ensure(id, signal);
+            stoppedForSnapshot = false;
+          } catch (resumeErr) {
+            stoppedForSnapshot = false;
+            throw new Error(
+              `Streaming backup created successfully (${receipt.backupId}) but failed to resume computer: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
+          }
+        }
+
+        return receipt;
+      } catch (error) {
+        if (stoppedForSnapshot) {
+          try {
+            await this.provider.ensure(id, signal);
+          } catch (resumeErr) {
+            throw new Error(
+              `${error instanceof Error ? error.message : String(error)} Additionally, the computer could not be resumed: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
+          }
+        }
+        throw error;
+      } finally {
+        this.backupLocks.delete(id);
+      }
+    });
+  }
+
+  /**
+   * Opt-in transactional streaming restore for ODAR-Stream v2.
+   * Authenticates individual frames into isolated staging, verifies the final authenticated
+   * manifest and EOF, validates archive constraints, and only then commits the restore.
+   */
+  async restoreStreaming(
+    id: string,
+    backupId: string,
+    type: BackupType = 'workspace',
+    signal?: AbortSignal,
+  ): Promise<{
+    restored: boolean;
+    backupId: string;
+    type: BackupType;
+    dotId: string;
+    byteLength: number;
+  }> {
+    this.requireDot(id);
+    if (!this.backups) {
+      throw new Error(
+        'Durable backup service is not configured. Configure B2 storage credentials and OPENDOTS_BACKUP_ENCRYPTION_KEY.',
+      );
+    }
+    if (!this.provider.configured) {
+      throw new Error(
+        'Computer provider is not configured; backup was verified but not applied.',
+      );
+    }
+    return this.audited(id, `restore_${type}`, 'owner', async () => {
+      if (this.backupLocks.has(id)) {
+        throw new Error(
+          `Another backup or restore operation is already in progress for Dot ${id}.`,
+        );
+      }
+      this.backupLocks.add(id);
+
+      let stoppedForRestore = false;
+      const wasRunning = await this.isRunning(id, signal);
+
+      try {
+        const MAX_STAGE_BYTES = 600 * 1024 * 1024;
+        const stagedChunks: Buffer[] = [];
+        let totalStagedBytes = 0;
+        const provider = this.provider;
+
+        const result = await this.backups!.restoreStreamingBackup({
+          dotId: id,
+          backupId,
+          backupType: type,
+          signal,
+          createStage: async () => ({
+            async write(chunk: Uint8Array) {
+              totalStagedBytes += chunk.length;
+              if (totalStagedBytes > MAX_STAGE_BYTES) {
+                throw new Error(
+                  'Staged backup payload exceeded maximum allowed size.',
+                );
+              }
+              stagedChunks.push(Buffer.from(chunk));
+            },
+            async validate() {
+              const fullPayload = Buffer.concat(stagedChunks);
+              extractArchive(fullPayload, undefined, {
+                strict: true,
+                expectedType: type,
+              });
+            },
+            async commit() {
+              if (wasRunning && !stoppedForRestore) {
+                stoppedForRestore = true;
+                await provider.stop(id, signal);
+              }
+
+              const fullPayload = Buffer.concat(stagedChunks);
+              if (provider.importDataStream) {
+                async function* payloadStream() {
+                  yield fullPayload;
+                }
+                await provider.importDataStream(
+                  id,
+                  type,
+                  payloadStream(),
+                  signal,
+                );
+              } else if (provider.importData) {
+                await provider.importData(id, type, fullPayload, signal);
+              } else {
+                throw new Error(
+                  `Computer provider "${provider.id}" does not support importing backup data.`,
+                );
+              }
+
+              return {
+                restored: true,
+                backupId,
+                type,
+                dotId: id,
+                byteLength: totalStagedBytes,
+              };
+            },
+            async rollback() {
+              stagedChunks.length = 0;
+            },
+          }),
+        });
+
+        if (stoppedForRestore) {
+          try {
+            await this.provider.ensure(id, signal);
+            stoppedForRestore = false;
+          } catch (resumeErr) {
+            stoppedForRestore = false;
+            throw new Error(
+              `Backup ${backupId} was restored but the computer failed to resume: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
+          }
+        }
+
+        return result;
+      } catch (error) {
         if (stoppedForRestore) {
           try {
             await this.provider.ensure(id, signal);

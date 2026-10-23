@@ -658,99 +658,99 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
   });
 });
 
-describe('BackupService End-to-End Workflow & Tenant Isolation', () => {
-  class MemoryStorageAdapter implements StorageAdapter {
-    storage = new Map<
-      string,
-      { data: Buffer; metadata?: Record<string, string> }
-    >();
+class MemoryStorageAdapter implements StorageAdapter {
+  storage = new Map<
+    string,
+    { data: Buffer; metadata?: Record<string, string> }
+  >();
 
-    async writeBackup(
-      key: string,
-      data: Buffer,
-      metadata?: Record<string, string>,
-    ) {
-      this.storage.set(key, { data, metadata });
-      return { key, eTag: '"mock-etag"' };
-    }
-
-    async writeBackupStream(
-      key: string,
-      source: AsyncIterable<Uint8Array>,
-      metadata?: Record<string, string>,
-    ) {
-      const chunks: Buffer[] = [];
-      for await (const chunk of source) chunks.push(Buffer.from(chunk));
-      return this.writeBackup(key, Buffer.concat(chunks), metadata);
-    }
-
-    async readBackupStream(key: string) {
-      const entry = this.storage.get(key);
-      if (!entry) throw new Error('NoSuchKey: Object does not exist');
-      const data = entry.data;
-      async function* fragments() {
-        const fragmentSize = 97;
-        for (let offset = 0; offset < data.length; offset += fragmentSize) {
-          yield data.subarray(offset, offset + fragmentSize);
-        }
-      }
-      return {
-        stream: fragments(),
-        metadata: entry.metadata,
-        versionId: 'memory-v1',
-      };
-    }
-
-    async readBackup(key: string) {
-      const entry = this.storage.get(key);
-      if (!entry) throw new Error('NoSuchKey: Object does not exist');
-      return { data: entry.data, metadata: entry.metadata };
-    }
-
-    async hasBackup(key: string) {
-      return this.storage.has(key);
-    }
-
-    async getMetadata(key: string): Promise<BackupMetadata | null> {
-      const entry = this.storage.get(key);
-      if (!entry) return null;
-      const meta = entry.metadata || {};
-      return {
-        key,
-        dotId: meta['dot-id'] || '',
-        backupId: meta['backup-id'] || '',
-        backupType:
-          (meta['backup-type'] as BackupMetadata['backupType']) || 'workspace',
-        byteLength: entry.data.length,
-        createdAt: Number(meta['created-at']) || 0,
-        unencryptedSha256: meta['unencrypted-sha256'],
-        encryptedSha256: meta['encrypted-sha256'],
-      };
-    }
-
-    async deleteBackup(key: string) {
-      this.storage.delete(key);
-    }
-
-    async listBackups(prefix?: string) {
-      const results: Array<{ key: string; size: number; lastModified: Date }> =
-        [];
-      for (const [key, val] of this.storage.entries()) {
-        if (!prefix || key.startsWith(prefix)) {
-          results.push({
-            key,
-            size: val.data.length,
-            lastModified: new Date(),
-          });
-        }
-      }
-      return results;
-    }
+  async writeBackup(
+    key: string,
+    data: Buffer,
+    metadata?: Record<string, string>,
+  ) {
+    this.storage.set(key, { data, metadata });
+    return { key, eTag: '"mock-etag"' };
   }
 
-  const hexKey =
-    'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
+  async writeBackupStream(
+    key: string,
+    source: AsyncIterable<Uint8Array>,
+    metadata?: Record<string, string>,
+  ) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of source) chunks.push(Buffer.from(chunk));
+    return this.writeBackup(key, Buffer.concat(chunks), metadata);
+  }
 
+  async readBackupStream(key: string) {
+    const entry = this.storage.get(key);
+    if (!entry) throw new Error('NoSuchKey: Object does not exist');
+    const data = entry.data;
+    async function* fragments() {
+      const fragmentSize = 97;
+      for (let offset = 0; offset < data.length; offset += fragmentSize) {
+        yield data.subarray(offset, offset + fragmentSize);
+      }
+    }
+    return {
+      stream: fragments(),
+      metadata: entry.metadata,
+      versionId: 'memory-v1',
+    };
+  }
+
+  async readBackup(key: string) {
+    const entry = this.storage.get(key);
+    if (!entry) throw new Error('NoSuchKey: Object does not exist');
+    return { data: entry.data, metadata: entry.metadata };
+  }
+
+  async hasBackup(key: string) {
+    return this.storage.has(key);
+  }
+
+  async getMetadata(key: string): Promise<BackupMetadata | null> {
+    const entry = this.storage.get(key);
+    if (!entry) return null;
+    const meta = entry.metadata || {};
+    return {
+      key,
+      dotId: meta['dot-id'] || '',
+      backupId: meta['backup-id'] || '',
+      backupType:
+        (meta['backup-type'] as BackupMetadata['backupType']) || 'workspace',
+      byteLength: entry.data.length,
+      createdAt: Number(meta['created-at']) || 0,
+      unencryptedSha256: meta['unencrypted-sha256'],
+      encryptedSha256: meta['encrypted-sha256'],
+    };
+  }
+
+  async deleteBackup(key: string) {
+    this.storage.delete(key);
+  }
+
+  async listBackups(prefix?: string) {
+    const results: Array<{ key: string; size: number; lastModified: Date }> =
+      [];
+    for (const [key, val] of this.storage.entries()) {
+      if (!prefix || key.startsWith(prefix)) {
+        results.push({
+          key,
+          size: val.data.length,
+          lastModified: new Date(),
+        });
+      }
+    }
+    return results;
+  }
+}
+
+const hexKey =
+  'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
+
+describe('BackupService End-to-End Workflow & Tenant Isolation', () => {
   it('creates and restores a V2 stream only after manifest and archive validation', async () => {
     const memory = new MemoryStorageAdapter();
     const service = new BackupService(memory, Buffer.from(hexKey, 'hex'));
@@ -1000,6 +1000,176 @@ describe('ComputerService Backup Lifecycle Integration', () => {
     // List
     const list = await service.listBackups(dot.id);
     expect(list).toHaveLength(1);
+    workspace.close();
+  });
+
+  it('rejects createStreamingBackup when storage adapter lacks streaming support', async () => {
+    const service = new BackupService(
+      {
+        writeBackup: vi.fn(),
+        readBackup: vi.fn(),
+        hasBackup: vi.fn(),
+        getMetadata: vi.fn(),
+        deleteBackup: vi.fn(),
+        listBackups: vi.fn(),
+      },
+      Buffer.from(hexKey, 'hex'),
+    );
+    await expect(
+      service.createStreamingBackup({
+        dotId: 'dot-1',
+        backupType: 'workspace',
+        source: (async function* () {})(),
+      }),
+    ).rejects.toThrow(/does not support streaming backups/);
+  });
+
+  it('rejects restoreStreamingBackup when storage adapter lacks streaming support', async () => {
+    const service = new BackupService(
+      {
+        writeBackup: vi.fn(),
+        readBackup: vi.fn(),
+        hasBackup: vi.fn(),
+        getMetadata: vi.fn(),
+        deleteBackup: vi.fn(),
+        listBackups: vi.fn(),
+      },
+      Buffer.from(hexKey, 'hex'),
+    );
+    await expect(
+      service.restoreStreamingBackup({
+        dotId: 'dot-1',
+        backupId: 'backup-mock-id',
+        backupType: 'workspace',
+        createStage: vi.fn(),
+      }),
+    ).rejects.toThrow(/does not support streaming restores/);
+  });
+
+  it('rejects restoreStreamingBackup when metadata does not match requested identity', async () => {
+    const memory = new MemoryStorageAdapter();
+    const service = new BackupService(memory, Buffer.from(hexKey, 'hex'));
+    const archive = gzipSync(Buffer.alloc(128));
+    const receipt = await service.createStreamingBackup({
+      dotId: 'dot-valid',
+      backupType: 'workspace',
+      source: (async function* () {
+        yield archive;
+      })(),
+    });
+
+    // Tamper with stored metadata
+    const stored = memory.storage.get(receipt.key);
+    if (!stored) throw new Error('Expected stored backup object');
+    stored.metadata = {
+      ...stored.metadata,
+      'dot-id': 'tampered-dot-id',
+    };
+
+    await expect(
+      service.restoreStreamingBackup({
+        dotId: 'dot-valid',
+        backupId: receipt.backupId,
+        backupType: 'workspace',
+        createStage: vi.fn(),
+      }),
+    ).rejects.toThrow(/metadata does not match/);
+  });
+
+  it('supports ComputerService streaming backup and transactional restore lifecycle', async () => {
+    const workspace = new WorkspaceStore(':memory:', 'owner');
+    const dot = workspace.dots()[0];
+    const archive = createArchive('workspace', [
+      { path: 'notes.txt', data: Buffer.from('streamed-notes') },
+    ]);
+    const importDataStream = vi.fn().mockResolvedValue(undefined);
+
+    const mockBackupService = {
+      createStreamingBackup: vi.fn().mockResolvedValue({
+        formatVersion: 2,
+        dotId: dot.id,
+        backupId: 'backup-stream-mock-id',
+        createdAt: Date.now(),
+        backupType: 'workspace',
+        key: 'backups/dot-1/workspace/backup-stream-mock-id.odbackup',
+      }),
+      restoreStreamingBackup: vi.fn(
+        async (options: {
+          createStage: () => Promise<{
+            write: (chunk: Uint8Array) => Promise<void>;
+            validate: () => Promise<void>;
+            commit: () => Promise<unknown>;
+          }>;
+        }) => {
+          const stage = await options.createStage();
+          await stage.write(archive);
+          await stage.validate();
+          return await stage.commit();
+        },
+      ),
+    } as unknown as BackupService;
+
+    const config = {
+      baseUrl: 'http://localhost',
+      voiceName: 'marin',
+      slackUsers: [],
+      runtimeUrl: 'http://localhost',
+    };
+
+    const mockProvider: ComputerProvider = {
+      id: 'streaming-provider',
+      configured: true,
+      async get(dotId) {
+        return { dotId, status: 'running', endpoint: 'http://127.0.0.1:4100' };
+      },
+      async ensure(dotId) {
+        return { dotId, status: 'running', endpoint: 'http://127.0.0.1:4100' };
+      },
+      async stop() {},
+      exportDataStream: vi.fn(async () => {
+        async function* gen() {
+          yield archive;
+        }
+        return gen();
+      }),
+      importDataStream,
+    };
+
+    const service = new ComputerService(
+      workspace,
+      { ...config, computerToken: 'test-only-computer-token-1234567890' },
+      () => false,
+      fetch,
+      5000,
+      mockProvider,
+      mockBackupService,
+    );
+
+    // 1. Snapshot Streaming
+    const receipt = await service.snapshotStreaming(dot.id, 'workspace');
+    expect(receipt.backupId).toBe('backup-stream-mock-id');
+    expect(mockProvider.exportDataStream).toHaveBeenCalledTimes(1);
+    expect(mockBackupService.createStreamingBackup).toHaveBeenCalledTimes(1);
+    expect(
+      workspace.computers
+        .audit(dot.id)
+        .some((a) => a.action === 'backup_workspace'),
+    ).toBe(true);
+
+    // 2. Restore Streaming
+    const restoreRes = await service.restoreStreaming(
+      dot.id,
+      'backup-stream-mock-id',
+      'workspace',
+    );
+    expect(restoreRes.restored).toBe(true);
+    expect(importDataStream).toHaveBeenCalledTimes(1);
+    expect(
+      workspace.computers
+        .audit(dot.id)
+        .some((a) => a.action === 'restore_workspace'),
+    ).toBe(true);
+
     workspace.close();
   });
 });
