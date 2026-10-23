@@ -46,6 +46,8 @@ export interface BackupStreamReadResult {
   stream: AsyncIterable<Uint8Array>;
   metadata?: Record<string, string>;
   versionId?: string;
+  /** Releases the response body and timeout if iteration never starts or ends early. */
+  cancel?: () => Promise<void> | void;
 }
 
 export interface StorageAdapter {
