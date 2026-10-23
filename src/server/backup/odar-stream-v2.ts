@@ -21,12 +21,14 @@ const SALT_BYTES = 16;
 const KEY_BYTES = 32;
 const NONCE_BYTES = 12;
 const MAX_U64 = (1n << 64n) - 1n;
-const ARCHIVE_TYPES = new Set(['workspace', 'browser-profile', 'full-computer']);
+const ARCHIVE_TYPES = new Set([
+  'workspace',
+  'browser-profile',
+  'full-computer',
+]);
 
 export type OdarStreamV2ArchiveType =
-  | 'workspace'
-  | 'browser-profile'
-  | 'full-computer';
+  'workspace' | 'browser-profile' | 'full-computer';
 
 export interface OdarStreamV2Identity {
   dotId: string;
@@ -197,7 +199,9 @@ function finalAad(
   totalBytes: bigint,
   digest: Buffer,
 ): Buffer {
-  const aad = Buffer.allocUnsafe(headerBinding.length + 1 + 8 + 8 + digest.length);
+  const aad = Buffer.allocUnsafe(
+    headerBinding.length + 1 + 8 + 8 + digest.length,
+  );
   headerBinding.copy(aad, 0);
   let offset = headerBinding.length;
   aad[offset++] = FINAL_FRAME;
@@ -216,12 +220,9 @@ function encryptDataFrame(
   derivedKey: Buffer,
   sequence: bigint,
 ): Buffer {
-  const cipher = createCipheriv(
-    'aes-256-gcm',
-    derivedKey,
-    nonceFor(sequence),
-    { authTagLength: GCM_TAG_BYTES },
-  );
+  const cipher = createCipheriv('aes-256-gcm', derivedKey, nonceFor(sequence), {
+    authTagLength: GCM_TAG_BYTES,
+  });
   cipher.setAAD(dataAad(headerBinding, sequence, plaintext.length));
   const updated = cipher.update(plaintext);
   const final = cipher.final();
@@ -384,10 +385,7 @@ export async function* decryptOdarStreamV2(
   }
   const headerLengthBytes = await reader.readExactly(4);
   const headerLength = headerLengthBytes.readUInt32BE(0);
-  if (
-    headerLength < 2 ||
-    headerLength > ODAR_STREAM_V2_MAX_HEADER_BYTES
-  ) {
+  if (headerLength < 2 || headerLength > ODAR_STREAM_V2_MAX_HEADER_BYTES) {
     throw new Error('ODAR-Stream v2 header length is invalid.');
   }
   const headerBytes = await reader.readExactly(headerLength);
@@ -397,7 +395,9 @@ export async function* decryptOdarStreamV2(
   for (const key of ['dotId', 'backupId', 'archiveType'] as const) {
     const expected = expectedIdentity[key];
     if (expected !== undefined && expected !== header[key]) {
-      throw new Error(`ODAR-Stream v2 ${key} does not match the requested backup.`);
+      throw new Error(
+        `ODAR-Stream v2 ${key} does not match the requested backup.`,
+      );
     }
   }
 
@@ -424,7 +424,9 @@ export async function* decryptOdarStreamV2(
       const plaintextLength = lengthBytes.readUInt32BE(0);
 
       if (sequence !== expectedSequence) {
-        throw new Error('ODAR-Stream v2 data frames are missing, repeated or out of order.');
+        throw new Error(
+          'ODAR-Stream v2 data frames are missing, repeated or out of order.',
+        );
       }
       if (plaintextLength < 1 || plaintextLength > header.chunkSize) {
         throw new Error('ODAR-Stream v2 frame length is invalid.');
@@ -532,7 +534,9 @@ function parseHeader(rawHeader: Buffer): Header {
     actualKeys.length !== expectedKeys.length ||
     actualKeys.some((key, index) => key !== expectedKeys[index])
   ) {
-    throw new Error('ODAR-Stream v2 header contains missing or unknown fields.');
+    throw new Error(
+      'ODAR-Stream v2 header contains missing or unknown fields.',
+    );
   }
   if (
     record.version !== VERSION ||
@@ -615,12 +619,7 @@ class ByteReader {
         length - written,
         this.current.length - this.offset,
       );
-      this.current.copy(
-        result,
-        written,
-        this.offset,
-        this.offset + copyLength,
-      );
+      this.current.copy(result, written, this.offset, this.offset + copyLength);
       this.offset += copyLength;
       written += copyLength;
     }
@@ -630,7 +629,9 @@ class ByteReader {
   async assertEof(): Promise<void> {
     abortIfNeeded(this.signal);
     if (this.offset < this.current.length) {
-      throw new Error('ODAR-Stream v2 has trailing bytes after the final manifest.');
+      throw new Error(
+        'ODAR-Stream v2 has trailing bytes after the final manifest.',
+      );
     }
     while (!this.ended) {
       const next = await this.iterator.next();
@@ -639,7 +640,9 @@ class ByteReader {
         return;
       }
       if (next.value.length > 0) {
-        throw new Error('ODAR-Stream v2 has trailing bytes after the final manifest.');
+        throw new Error(
+          'ODAR-Stream v2 has trailing bytes after the final manifest.',
+        );
       }
     }
   }
