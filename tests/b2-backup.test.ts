@@ -39,8 +39,8 @@ describe('B2 Configuration Validation', () => {
       B2_ENDPOINT: 's3.us-east-005.backblazeb2.com/',
       B2_REGION: 'us-east-005',
       B2_BUCKET_NAME: 'opendots-persistence-20261021',
-      B2_KEY_ID: '005fdf16e54e49c0000000001',
-      B2_APPLICATION_KEY: 'K005fEd5Y8oS83PekPmGlfBAyWWml7w',
+      B2_KEY_ID: 'TEST_B2_KEY_ID_NOT_REAL_0001',
+      B2_APPLICATION_KEY: 'TEST_B2_APP_KEY_NOT_REAL_ONLY',
     });
 
     expect(config).not.toBeNull();
@@ -83,8 +83,8 @@ describe('Encryption Key Resolution & Authenticated AES-256-GCM', () => {
   it('rejects reuse of B2_APPLICATION_KEY as encryption key', () => {
     expect(() =>
       resolveEncryptionKey({
-        B2_APPLICATION_KEY: 'K005fEd5Y8oS83PekPmGlfBAyWWml7w',
-        OPENDOTS_BACKUP_ENCRYPTION_KEY: 'K005fEd5Y8oS83PekPmGlfBAyWWml7w',
+        B2_APPLICATION_KEY: 'TEST_B2_APP_KEY_NOT_REAL_ONLY',
+        OPENDOTS_BACKUP_ENCRYPTION_KEY: 'TEST_B2_APP_KEY_NOT_REAL_ONLY',
       }),
     ).toThrow(
       'Security violation: OPENDOTS_BACKUP_ENCRYPTION_KEY must not reuse',
@@ -272,8 +272,8 @@ describe('Archive Safety & Resource Limits', () => {
 
 describe('B2 Storage Adapter & Secret Redaction', () => {
   it('redacts secret credentials in thrown errors', async () => {
-    const keyId = '005fdf16e54e49c0000000001';
-    const appKey = 'K005fEd5Y8oS83PekPmGlfBAyWWml7w';
+    const keyId = 'TEST_B2_KEY_ID_NOT_REAL_0001';
+    const appKey = 'TEST_B2_APP_KEY_NOT_REAL_ONLY';
 
     const mockClient = {
       send: vi
