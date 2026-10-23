@@ -135,6 +135,16 @@ function createTestHarness() {
     },
     async exportData(dotId, type) {
       lifecycleLog.push(`exportData:${dotId}:${type}`);
+      if (type === 'workspace') {
+        const files = computerFiles.get(dotId) ?? new Map();
+        return createArchive(
+          'workspace',
+          Array.from(files.entries()).map(([path, content]) => ({
+            path,
+            data: Buffer.from(content, 'utf8'),
+          })),
+        );
+      }
       if (type === 'browser-profile') {
         return createArchive('browser-profile', [
           {
@@ -147,15 +157,33 @@ function createTestHarness() {
           },
         ]);
       }
+      if (type === 'full-computer') {
+        const files = computerFiles.get(dotId) ?? new Map();
+        return createArchive(
+          'full-computer',
+          Array.from(files.entries()).map(([path, content]) => ({
+            path: `workspace/${path}`,
+            data: Buffer.from(content, 'utf8'),
+          })),
+        );
+      }
       throw new Error(`Provider does not handle ${type}`);
     },
     async importData(dotId, type, data) {
       lifecycleLog.push(`importData:${dotId}:${type}`);
-      if (type === 'browser-profile') {
-        extractArchive(data);
-        return;
+      const entries = extractArchive(data);
+      if (type === 'workspace' || type === 'full-computer') {
+        const files = computerFiles.get(dotId) ?? new Map<string, string>();
+        files.clear();
+        for (const entry of entries) {
+          if (type === 'workspace') files.set(entry.path, entry.data.toString('utf8'));
+          else if (entry.path.startsWith('workspace/')) {
+            files.set(entry.path.slice('workspace/'.length), entry.data.toString('utf8'));
+          }
+        }
+        computerFiles.set(dotId, files);
       }
-      throw new Error(`Provider does not handle ${type}`);
+      return;
     },
   };
 
