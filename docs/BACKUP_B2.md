@@ -23,7 +23,7 @@ Because object storage (B2) is not a mounted POSIX filesystem, B2 is used as a *
 
 ## 2. Environment Configuration
 
-Add the following environment variables to `.env`:
+Add the following environment variables to `.env`. The values below are placeholders only; never commit actual credentials or encryption keys:
 
 ```env
 # S3-compatible Backblaze B2 endpoint URL
@@ -36,13 +36,13 @@ B2_REGION=
 B2_BUCKET=
 
 # Dedicated bucket-restricted B2 Application Key ID
-B2_KEY_ID=
+B2_KEY_ID=replace-with-bucket-restricted-key-id
 
 # Dedicated B2 Application Key secret
-B2_APPLICATION_KEY=
+B2_APPLICATION_KEY=replace-with-secret-from-B2-console
 
 # 256-bit encryption key (64 hex characters or 32+ character passphrase)
-OPENDOTS_BACKUP_ENCRYPTION_KEY=
+OPENDOTS_BACKUP_ENCRYPTION_KEY=generate-a-separate-64-character-hex-key
 ```
 
 _Note: For backward compatibility, `B2_ENDPOINT` and `B2_BUCKET_NAME` are also supported._
