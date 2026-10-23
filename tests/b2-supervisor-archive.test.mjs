@@ -15,25 +15,27 @@ describe("supervisor archive format", () => {
   it("round-trips binary workspace files through ODAR", () => {
     const expected = Buffer.from([0, 1, 2, 127, 128, 254, 255]);
     const packed = encodeOdar("workspace", [
-      { path: "src/binary.bin", data: expected, mtime: 1_700_000_000 },
+      { path: "src/binary.bin", data: expected, mtime: 1_700_000_000, mode: 0o755 },
     ]);
     const decoded = decodeOdar(packed, "workspace");
     expect(decoded).toHaveLength(1);
     expect(decoded[0].path).toBe("src/binary.bin");
     expect(decoded[0].data).toEqual(expected);
     expect(decoded[0].mtime).toBe(1_700_000_000);
+    expect(decoded[0].mode).toBe(0o755);
   });
 
   it("round-trips tar files, including paths that require a PAX header", () => {
     const data = Buffer.from([0, 9, 10, 13, 127, 255]);
     const longPath = "x".repeat(130);
     const tar = createTarArchive([
-      { path: "workspace/marker.bin", data, mtime: 1_700_000_000 },
+      { path: "workspace/marker.bin", data, mtime: 1_700_000_000, mode: 0o755 },
       { path: longPath, data: Buffer.from("long path") },
     ]);
     const decoded = parseTarArchive(tar, "/workspace", "workspace");
     expect(decoded.map((entry) => entry.path)).toEqual(["marker.bin", longPath]);
     expect(decoded[0].data).toEqual(data);
+    expect(decoded[0].mode).toBe(0o755);
     expect(decoded[1].data.toString("utf8")).toBe("long path");
   });
 
