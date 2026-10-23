@@ -224,7 +224,6 @@ async function main() {
   const cookie = cookieName + '=' + cookieValue + '; Path=/; Max-Age=3600; Secure; SameSite=Lax';
 
   let permissionsChanged = false;
-  let touchedLifecycle = false;
 
   try {
     await api('/dots/' + encodeURIComponent(dotId) + '/computer/permissions', 'PATCH', {
@@ -236,8 +235,6 @@ async function main() {
     permissionsChanged = true;
 
     await api('/dots/' + encodeURIComponent(dotId) + '/computer/start', 'POST', {});
-    touchedLifecycle = true;
-
     // -------- Workspace archive round trip through the actual Docker supervisor --------
     await action(dotId, 'files_write', {
       path: workspaceFile,
@@ -324,8 +321,23 @@ async function main() {
     // Never leave a production user's computer stopped or permissions changed.
     try {
       const status = await api('/dots/' + encodeURIComponent(dotId) + '/computer');
+      if (status.state === 'running' && cookieName) {
+        const expireCookie = new URL('https://httpbin.org/response-headers');
+        expireCookie.searchParams.set(
+          'Set-Cookie',
+          cookieName + '=; Path=/; Max-Age=0; Secure; SameSite=Lax',
+        );
+        await action(dotId, 'navigate', { url: expireCookie.toString() });
+      }
+    } catch {
+      console.error('CLEANUP WARNING: could not expire the temporary browser test cookie.');
+    }
+    try {
+      const status = await api('/dots/' + encodeURIComponent(dotId) + '/computer');
       if (status.state === 'running') await api('/dots/' + encodeURIComponent(dotId) + '/computer/stop', 'POST', {});
-    } catch {}
+    } catch {
+      console.error('CLEANUP WARNING: could not stop the computer before removing test markers.');
+    }
 
     for (const [volume, mount, path] of [
       [workspaceVolume, '/workspace', '/workspace/' + workspaceFile],
@@ -355,7 +367,6 @@ async function main() {
         console.error('CLEANUP WARNING: could not restore the original computer permissions.');
       }
     }
-    void touchedLifecycle;
   }
 }
 
