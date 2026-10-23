@@ -325,11 +325,7 @@ export async function* encryptOdarStreamV2(
     }
     const input = Buffer.isBuffer(inputValue)
       ? inputValue
-      : Buffer.from(
-          inputValue.buffer,
-          inputValue.byteOffset,
-          inputValue.byteLength,
-        );
+      : Buffer.from(inputValue);
     let offset = 0;
     while (offset < input.length) {
       abortIfNeeded(options.signal);
@@ -412,6 +408,101 @@ export async function* decryptOdarStreamV2(
     let expectedSequence = 0n;
     let totalBytes = 0;
 
+    for (;;) {
+      abortIfNeeded(options.signal);
+      const frameType = (await reader.readExactly(1))[0];
+
+      if (frameType === DATA_FRAME) {
+        const sequenceBytes = await reader.readExactly(8);
+        const sequence = sequenceBytes.readBigUInt64BE(0);
+        const lengthBytes = await reader.readExactly(4);
+        const plaintextLength = lengthBytes.readUInt32BE(0);
+
+        if (sequence !== expectedSequence) {
+          throw new Error(
+            'ODAR-Stream v2 data frames are missing, repeated or out of order.',
+          );
+        }
+        if (plaintextLength < 1 || plaintextLength > header.chunkSize) {
+          throw new Error('ODAR-Stream v2 frame length is invalid.');
+        }
+        if (totalBytes + plaintextLength > maxTotalBytes) {
+          throw new Error('ODAR-Stream v2 plaintext byte limit exceeded.');
+        }
+
+        const ciphertext = await reader.readExactly(plaintextLength);
+        const tag = await reader.readExactly(GCM_TAG_BYTES);
+        const decipher = createDecipheriv(
+          'aes-256-gcm',
+          derivedKey,
+          nonceFor(sequence),
+          { authTagLength: GCM_TAG_BYTES },
+        );
+        decipher.setAAD(dataAad(headerBinding, sequence, plaintextLength));
+        decipher.setAuthTag(tag);
+
+        let plaintext: Buffer;
+        try {
+          const updated = decipher.update(ciphertext);
+          const final = decipher.final();
+          plaintext = final.length ? Buffer.concat([updated, final]) : updated;
+        } catch {
+          throw new Error('ODAR-Stream v2 data frame authentication failed.');
+        }
+
+        if (plaintext.length !== plaintextLength) {
+          throw new Error('ODAR-Stream v2 decrypted frame length is invalid.');
+        }
+        digest.update(plaintext);
+        totalBytes += plaintext.length;
+        expectedSequence += 1n;
+        yield plaintext;
+        continue;
+      }
+
+      if (frameType !== FINAL_FRAME) {
+        throw new Error('ODAR-Stream v2 contains an unknown frame type.');
+      }
+
+      const countBytes = await reader.readExactly(8);
+      const chunkCount = countBytes.readBigUInt64BE(0);
+      const totalBytesField = await reader.readExactly(8);
+      const declaredTotalBytes = totalBytesField.readBigUInt64BE(0);
+      const declaredDigest = await reader.readExactly(32);
+      const tag = await reader.readExactly(GCM_TAG_BYTES);
+
+      if (chunkCount !== expectedSequence) {
+        throw new Error(
+          'ODAR-Stream v2 final manifest chunk count is invalid.',
+        );
+      }
+      if (declaredTotalBytes !== BigInt(totalBytes)) {
+        throw new Error('ODAR-Stream v2 final manifest byte count is invalid.');
+      }
+      const actualDigest = digest.digest();
+      if (!timingSafeEqual(declaredDigest, actualDigest)) {
+        throw new Error('ODAR-Stream v2 final manifest digest is invalid.');
+      }
+
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        derivedKey,
+        nonceFor(chunkCount),
+        { authTagLength: GCM_TAG_BYTES },
+      );
+      decipher.setAAD(
+        finalAad(headerBinding, chunkCount, declaredTotalBytes, declaredDigest),
+      );
+      decipher.setAuthTag(tag);
+      try {
+        decipher.final();
+      } catch {
+        throw new Error('ODAR-Stream v2 final manifest authentication failed.');
+      }
+
+      await reader.assertEof();
+      return;
+    }
   } finally {
     await reader.close();
   }

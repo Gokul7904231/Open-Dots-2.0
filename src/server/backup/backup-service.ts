@@ -254,14 +254,15 @@ export class BackupService {
       );
     }
 
-    const stage = await options.createStage();
-    const identity: OdarStreamV2Identity = {
-      dotId: options.dotId,
-      backupId: options.backupId,
-      archiveType: options.backupType,
-    };
-
+    let stage: StreamingRestoreStage<TResult> | undefined;
     try {
+      stage = await options.createStage();
+      const identity: OdarStreamV2Identity = {
+        dotId: options.dotId,
+        backupId: options.backupId,
+        archiveType: options.backupType,
+      };
+
       const plaintext = decryptOdarStreamV2(
         stored.stream,
         this.getKey(),
@@ -277,13 +278,22 @@ export class BackupService {
       await stage.validate();
       return await stage.commit();
     } catch (error) {
-      try {
-        await stage.rollback();
-      } catch {
-        throw new Error(
-          'ODAR-Stream v2 restore failed and staging rollback needs operator review.',
-          { cause: error },
-        );
+      if (stored.cancel) {
+        try {
+          await stored.cancel();
+        } catch {
+          // Ignore cancel cleanup failures while reporting root error
+        }
+      }
+      if (stage) {
+        try {
+          await stage.rollback();
+        } catch {
+          throw new Error(
+            'ODAR-Stream v2 restore failed and staging rollback needs operator review.',
+            { cause: error },
+          );
+        }
       }
       throw error;
     }

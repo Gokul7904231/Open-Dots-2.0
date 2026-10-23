@@ -505,6 +505,157 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
     expect(result.metadata).toEqual({ 'dot-id': 'dot-alpha' });
     expect(result.versionId).toBe('v3');
   });
+
+  it('handles empty streaming uploads via PutObjectCommand', async () => {
+    const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
+    const mockClient = {
+      send: vi.fn(async (command: unknown) => {
+        const item = command as {
+          constructor: { name: string };
+          input: Record<string, unknown>;
+        };
+        calls.push({ name: item.constructor.name, input: item.input });
+        return { ETag: '"empty-etag"', VersionId: 'v-empty' };
+      }),
+    } as unknown as S3Client;
+    const adapter = new B2StorageAdapter(
+      {
+        endpoint: 'https://s3.us-east-005.backblazeb2.com',
+        region: 'us-east-005',
+        bucket: 'test-bucket',
+        keyId: 'test-key-id',
+        applicationKey: 'test-application-key',
+      },
+      mockClient,
+    );
+
+    const emptyStream = Readable.from([]);
+    const result = await adapter.writeBackupStream(
+      'empty.odbackup',
+      emptyStream,
+    );
+
+    expect(result.eTag).toBe('"empty-etag"');
+    expect(calls.map((c) => c.name)).toEqual(['PutObjectCommand']);
+    expect(calls[0]!.input.Body).toEqual(Buffer.alloc(0));
+  });
+
+  it('aborts multipart upload when source stream throws an error', async () => {
+    const commandNames: string[] = [];
+    const mockClient = {
+      send: vi.fn(async (command: unknown) => {
+        const item = command as { constructor: { name: string } };
+        commandNames.push(item.constructor.name);
+        if (item.constructor.name === 'CreateMultipartUploadCommand') {
+          return { UploadId: 'upload-src-fail' };
+        }
+        if (item.constructor.name === 'UploadPartCommand') {
+          return { ETag: '"part-1-etag"' };
+        }
+        if (item.constructor.name === 'AbortMultipartUploadCommand') {
+          return {};
+        }
+        throw new Error(`Unexpected S3 command: ${item.constructor.name}`);
+      }),
+    } as unknown as S3Client;
+    const adapter = new B2StorageAdapter(
+      {
+        endpoint: 'https://s3.us-east-005.backblazeb2.com',
+        region: 'us-east-005',
+        bucket: 'test-bucket',
+        keyId: 'test-key-id',
+        applicationKey: 'test-application-key',
+      },
+      mockClient,
+    );
+
+    async function* failingSource() {
+      yield Buffer.alloc(5 * 1024 * 1024, 0x55);
+      throw new Error('source read failed midway');
+    }
+
+    await expect(
+      adapter.writeBackupStream('failing-source.odbackup', failingSource()),
+    ).rejects.toThrow('source read failed midway');
+
+    expect(commandNames).toEqual([
+      'CreateMultipartUploadCommand',
+      'UploadPartCommand',
+      'AbortMultipartUploadCommand',
+    ]);
+  });
+
+  it('wraps error with abort details when AbortMultipartUploadCommand fails', async () => {
+    const mockClient = {
+      send: vi.fn(async (command: unknown) => {
+        const item = command as { constructor: { name: string } };
+        if (item.constructor.name === 'CreateMultipartUploadCommand') {
+          return { UploadId: 'upload-abort-fail' };
+        }
+        if (item.constructor.name === 'UploadPartCommand') {
+          throw new Error('upload part connection reset');
+        }
+        if (item.constructor.name === 'AbortMultipartUploadCommand') {
+          throw new Error('abort call network error');
+        }
+        throw new Error(`Unexpected S3 command: ${item.constructor.name}`);
+      }),
+    } as unknown as S3Client;
+    const adapter = new B2StorageAdapter(
+      {
+        endpoint: 'https://s3.us-east-005.backblazeb2.com',
+        region: 'us-east-005',
+        bucket: 'test-bucket',
+        keyId: 'test-key-id',
+        applicationKey: 'test-application-key',
+      },
+      mockClient,
+    );
+
+    async function* source() {
+      yield Buffer.alloc(5 * 1024 * 1024, 0x66);
+      yield Buffer.alloc(10, 0x77);
+    }
+
+    await expect(
+      adapter.writeBackupStream('abort-failed.odbackup', source()),
+    ).rejects.toThrow(
+      /Multipart abort failed after B2 upload error: abort call network error/,
+    );
+  });
+
+  it('cancels readBackupStream when signal is aborted', async () => {
+    const controller = new AbortController();
+    const mockClient = {
+      send: vi.fn(async () => ({
+        Body: (async function* () {
+          yield Buffer.from('chunk-1');
+          controller.abort(new Error('consumer cancelled download'));
+          yield Buffer.from('chunk-2');
+        })(),
+      })),
+    } as unknown as S3Client;
+    const adapter = new B2StorageAdapter(
+      {
+        endpoint: 'https://s3.us-east-005.backblazeb2.com',
+        region: 'us-east-005',
+        bucket: 'test-bucket',
+        keyId: 'test-key-id',
+        applicationKey: 'test-application-key',
+      },
+      mockClient,
+    );
+
+    const result = await adapter.readBackupStream(
+      'cancel.odbackup',
+      controller.signal,
+    );
+    await expect(async () => {
+      for await (const chunk of result.stream) {
+        void chunk;
+      }
+    }).rejects.toThrow(/cancelled/i);
+  });
 });
 
 describe('BackupService End-to-End Workflow & Tenant Isolation', () => {

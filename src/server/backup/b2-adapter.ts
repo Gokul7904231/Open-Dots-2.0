@@ -27,13 +27,12 @@ export interface B2StorageConfig {
 const B2_ENDPOINT_REGEX = /^https:\/\/s3\.[a-z0-9-]+\.backblazeb2\.com$/;
 const B2_MULTIPART_MIN_PART_BYTES = 5 * 1024 * 1024;
 const B2_MAX_MULTIPART_PARTS = 10_000;
-const MAX_BACKUP_DOWNLOAD_BYTES = 500 * 1024 * 1024;
 const MAX_STREAM_BACKUP_DOWNLOAD_BYTES = 650 * 1024 * 1024;
 const DEFAULT_B2_STREAM_TIMEOUT_MS = 15 * 60 * 1000;
 
 class AsyncByteReader {
   private readonly iterator: AsyncIterator<Uint8Array>;
-  private current = Buffer.alloc(0);
+  private current: Uint8Array = new Uint8Array(0);
   private offset = 0;
   private ended = false;
 
@@ -62,13 +61,7 @@ class AsyncByteReader {
         if (!(next.value instanceof Uint8Array)) {
           throw new Error('Backup stream yielded a non-binary chunk.');
         }
-        this.current = Buffer.isBuffer(next.value)
-          ? next.value
-          : Buffer.from(
-              next.value.buffer,
-              next.value.byteOffset,
-              next.value.byteLength,
-            );
+        this.current = next.value;
         this.offset = 0;
         if (this.current.length === 0) continue;
       }
@@ -77,7 +70,10 @@ class AsyncByteReader {
         maxBytes - written,
         this.current.length - this.offset,
       );
-      this.current.copy(output, written, this.offset, this.offset + copyLength);
+      output.set(
+        this.current.subarray(this.offset, this.offset + copyLength),
+        written,
+      );
       written += copyLength;
       this.offset += copyLength;
     }
@@ -241,116 +237,120 @@ export class B2StorageAdapter implements StorageAdapter {
     metadata?: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<{ key: string; eTag?: string; versionId?: string }> {
-    return this.executeWithTimeout(async (activeSignal) => {
-      const reader = new AsyncByteReader(data);
-      let uploadId: string | undefined;
+    return this.executeWithTimeout(
+      async (activeSignal) => {
+        const reader = new AsyncByteReader(data);
+        let uploadId: string | undefined;
 
-      try {
-        const firstPart = await reader.readUpTo(
-          B2_MULTIPART_MIN_PART_BYTES,
-          activeSignal,
-        );
+        try {
+          const firstPart = await reader.readUpTo(
+            B2_MULTIPART_MIN_PART_BYTES,
+            activeSignal,
+          );
 
-        if (!firstPart || firstPart.length < B2_MULTIPART_MIN_PART_BYTES) {
-          const response = await this.client.send(
-            new PutObjectCommand({
+          if (!firstPart || firstPart.length < B2_MULTIPART_MIN_PART_BYTES) {
+            const response = await this.client.send(
+              new PutObjectCommand({
+                Bucket: this.bucket,
+                Key: key,
+                Body: firstPart ?? Buffer.alloc(0),
+                ContentType: 'application/octet-stream',
+                Metadata: metadata,
+              }),
+              { abortSignal: activeSignal },
+            );
+            return { key, eTag: response.ETag, versionId: response.VersionId };
+          }
+
+          const created = await this.client.send(
+            new CreateMultipartUploadCommand({
               Bucket: this.bucket,
               Key: key,
-              Body: firstPart ?? Buffer.alloc(0),
               ContentType: 'application/octet-stream',
               Metadata: metadata,
             }),
             { abortSignal: activeSignal },
           );
-          return { key, eTag: response.ETag, versionId: response.VersionId };
-        }
-
-        const created = await this.client.send(
-          new CreateMultipartUploadCommand({
-            Bucket: this.bucket,
-            Key: key,
-            ContentType: 'application/octet-stream',
-            Metadata: metadata,
-          }),
-          { abortSignal: activeSignal },
-        );
-        if (!created.UploadId) {
-          throw new Error('B2 did not return a multipart upload ID.');
-        }
-        uploadId = created.UploadId;
-
-        const parts: Array<{ ETag: string; PartNumber: number }> = [];
-        let partNumber = 1;
-        let part: Buffer | null = firstPart;
-
-        while (part) {
-          if (partNumber > B2_MAX_MULTIPART_PARTS) {
-            throw new Error(
-              'Backup exceeds the B2 multipart part-count limit.',
-            );
+          if (!created.UploadId) {
+            throw new Error('B2 did not return a multipart upload ID.');
           }
-          const uploaded = await this.client.send(
-            new UploadPartCommand({
-              Bucket: this.bucket,
-              Key: key,
-              UploadId: uploadId,
-              PartNumber: partNumber,
-              Body: part,
-            }),
-            { abortSignal: activeSignal },
-          );
-          if (!uploaded.ETag) {
-            throw new Error(
-              `B2 did not return an ETag for multipart part ${partNumber}.`,
-            );
-          }
-          parts.push({ ETag: uploaded.ETag, PartNumber: partNumber });
-          partNumber += 1;
-          part = await reader.readUpTo(
-            B2_MULTIPART_MIN_PART_BYTES,
-            activeSignal,
-          );
-        }
+          uploadId = created.UploadId;
 
-        const completed = await this.client.send(
-          new CompleteMultipartUploadCommand({
-            Bucket: this.bucket,
-            Key: key,
-            UploadId: uploadId,
-            MultipartUpload: { Parts: parts },
-          }),
-          { abortSignal: activeSignal },
-        );
-        uploadId = undefined;
-        return { key, eTag: completed.ETag, versionId: completed.VersionId };
-      } catch (error) {
-        if (uploadId) {
-          try {
-            await this.client.send(
-              new AbortMultipartUploadCommand({
+          const parts: Array<{ ETag: string; PartNumber: number }> = [];
+          let partNumber = 1;
+          let part: Buffer | null = firstPart;
+
+          while (part) {
+            if (partNumber > B2_MAX_MULTIPART_PARTS) {
+              throw new Error(
+                'Backup exceeds the B2 multipart part-count limit.',
+              );
+            }
+            const uploaded = await this.client.send(
+              new UploadPartCommand({
                 Bucket: this.bucket,
                 Key: key,
                 UploadId: uploadId,
+                PartNumber: partNumber,
+                Body: part,
               }),
-              { abortSignal: AbortSignal.timeout(5000) },
+              { abortSignal: activeSignal },
             );
-          } catch (abortError) {
-            const detail = this.redact(
-              abortError instanceof Error
-                ? abortError.message
-                : String(abortError),
-            ).slice(0, 200);
-            throw new Error(
-              `Multipart abort failed after B2 upload error: ${detail}`,
-              { cause: error },
+            if (!uploaded.ETag) {
+              throw new Error(
+                `B2 did not return an ETag for multipart part ${partNumber}.`,
+              );
+            }
+            parts.push({ ETag: uploaded.ETag, PartNumber: partNumber });
+            partNumber += 1;
+            part = await reader.readUpTo(
+              B2_MULTIPART_MIN_PART_BYTES,
+              activeSignal,
             );
           }
+
+          const completed = await this.client.send(
+            new CompleteMultipartUploadCommand({
+              Bucket: this.bucket,
+              Key: key,
+              UploadId: uploadId,
+              MultipartUpload: { Parts: parts },
+            }),
+            { abortSignal: activeSignal },
+          );
+          uploadId = undefined;
+          return { key, eTag: completed.ETag, versionId: completed.VersionId };
+        } catch (error) {
+          if (uploadId) {
+            try {
+              await this.client.send(
+                new AbortMultipartUploadCommand({
+                  Bucket: this.bucket,
+                  Key: key,
+                  UploadId: uploadId,
+                }),
+                { abortSignal: AbortSignal.timeout(5000) },
+              );
+            } catch (abortError) {
+              const detail = this.redact(
+                abortError instanceof Error
+                  ? abortError.message
+                  : String(abortError),
+              ).slice(0, 200);
+              throw new Error(
+                `Multipart abort failed after B2 upload error: ${detail}`,
+                { cause: abortError },
+              );
+            }
+          }
+          throw error;
+        } finally {
+          await reader.close().catch(() => undefined);
         }
-        throw error;
-      } finally {
-        await reader.close().catch(() => undefined);
-      }
-    }, signal, this.streamTimeoutMs);
+      },
+      signal,
+      this.streamTimeoutMs,
+    );
   }
 
   /**
@@ -414,7 +414,7 @@ export class B2StorageAdapter implements StorageAdapter {
     if (activeSignal.aborted) abortBody();
     else activeSignal.addEventListener('abort', abortBody, { once: true });
 
-    const adapter = this;
+    const redact = (value: string) => this.redact(value);
     const stream: AsyncIterable<Uint8Array> = {
       async *[Symbol.asyncIterator]() {
         let totalBytes = 0;
@@ -443,14 +443,13 @@ export class B2StorageAdapter implements StorageAdapter {
           const raw = error instanceof Error ? error.message : String(error);
           if (activeSignal.aborted) {
             throw new Error(
-              `B2 storage stream read timed out or was cancelled: ${adapter.redact(raw)}`,
+              `B2 storage stream read timed out or was cancelled: ${redact(raw)}`,
               { cause: error },
             );
           }
-          throw new Error(
-            `B2 storage stream read failed: ${adapter.redact(raw)}`,
-            { cause: error },
-          );
+          throw new Error(`B2 storage stream read failed: ${redact(raw)}`, {
+            cause: error,
+          });
         } finally {
           activeSignal.removeEventListener('abort', abortBody);
           clearTimeout(timeout);
