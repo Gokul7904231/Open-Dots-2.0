@@ -358,11 +358,9 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
     async function* source() {
       yield Buffer.from('small backup');
     }
-    const result = await adapter.writeBackupStream(
-      'small.odbackup',
-      source(),
-      { 'backup-version': '2' },
-    );
+    const result = await adapter.writeBackupStream('small.odbackup', source(), {
+      'backup-version': '2',
+    });
 
     expect(result).toEqual({
       key: 'small.odbackup',
@@ -415,11 +413,9 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
       yield Buffer.alloc(3 * 1024 * 1024, 0x11);
       yield Buffer.alloc(3 * 1024 * 1024, 0x22);
     }
-    const result = await adapter.writeBackupStream(
-      'large.odbackup',
-      source(),
-      { 'dot-id': 'dot-alpha' },
-    );
+    const result = await adapter.writeBackupStream('large.odbackup', source(), {
+      'dot-id': 'dot-alpha',
+    });
 
     expect(result).toEqual({
       key: 'large.odbackup',
