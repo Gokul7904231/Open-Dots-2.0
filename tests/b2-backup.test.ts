@@ -332,7 +332,7 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
     );
   });
 
-  it('streams small objects through PutObject without collecting more than the bounded first part', async () => {
+  it('streams small backups through PutObject', async () => {
     const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
     const mockClient = {
       send: vi.fn(async (command: unknown) => {
@@ -376,7 +376,7 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
     expect(calls[0]!.input.Metadata).toEqual({ 'backup-version': '2' });
   });
 
-  it('uploads full 5 MiB non-final parts serially and permits a smaller final part', async () => {
+  it('uses 5 MiB multipart parts and permits a small final part', async () => {
     const partSizes: number[] = [];
     const commandNames: string[] = [];
     const mockClient = {
@@ -435,7 +435,7 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
     ]);
   });
 
-  it('aborts an incomplete multipart upload when a source part fails', async () => {
+  it('aborts multipart uploads after a failed part', async () => {
     const commandNames: string[] = [];
     const mockClient = {
       send: vi.fn(async (command: unknown) => {
@@ -479,7 +479,7 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
     ]);
   });
 
-  it('exposes B2 object reads as a bounded stream without Buffer.concat', async () => {
+  it('reads B2 backups as a bounded stream', async () => {
     const mockClient = {
       send: vi.fn(async () => ({
         Body: Readable.from([Buffer.from('first-'), Buffer.from('second')]),
@@ -502,9 +502,9 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
     const chunks: Uint8Array[] = [];
     for await (const chunk of result.stream) chunks.push(chunk);
 
-    expect(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString()).toBe(
-      'first-second',
-    );
+    expect(
+      Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString(),
+    ).toBe('first-second');
     expect(result.metadata).toEqual({ 'dot-id': 'dot-alpha' });
     expect(result.versionId).toBe('v3');
   });
