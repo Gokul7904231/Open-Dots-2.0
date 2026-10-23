@@ -21,18 +21,41 @@ const controlSchema = z.object({
   resumeSnapshotRequired: z.boolean(),
   request: z.object({ id: z.string(), status: z.string() }).optional(),
 });
+import {
+  createArchive,
+  extractArchive,
+  type ArchiveEntry,
+  type BackupService,
+  type BackupType,
+} from './backup/index.js';
+
 export class ComputerService {
   private readonly provider: ComputerProvider;
+  private readonly backups?: BackupService;
+  private readonly backupLocks = new Set<string>();
   constructor(
     private workspace: WorkspaceStore,
     private config: PlatformConfig,
     private paused: () => boolean,
     private transport: typeof fetch = fetch,
     private deadlineMs = 70000,
-    provider?: ComputerProvider,
+    providerOrBackups?: ComputerProvider | BackupService,
+    backups?: BackupService,
   ) {
+    let resolvedProvider: ComputerProvider | undefined;
+    let resolvedBackups = backups;
+
+    if (providerOrBackups) {
+      if ('createBackup' in providerOrBackups) {
+        resolvedBackups = providerOrBackups;
+      } else {
+        resolvedProvider = providerOrBackups;
+      }
+    }
+
     this.provider =
-      provider ?? createComputerProvider(config, transport, deadlineMs);
+      resolvedProvider ?? createComputerProvider(config, transport, deadlineMs);
+    this.backups = resolvedBackups;
   }
   get configured() {
     return !!this.config.computerToken?.trim() && this.provider.configured;
@@ -54,6 +77,10 @@ export class ComputerService {
     this.requireDot(id);
     if (!this.configured)
       throw new Error('Computer service is not configured.');
+    if (this.backupLocks.has(id) && actor === 'agent')
+      throw new Error(
+        'Computer operations are paused: backup or restore is in progress.',
+      );
     const policy = this.workspace.computers.permissions(id);
     if (!policy.enabled || (kind && !policy[kind]))
       throw new Error('Computer permission is disabled.');
@@ -337,5 +364,368 @@ export class ComputerService {
         clearInterval(watcher);
       }
     });
+  }
+
+  get backupService(): BackupService | undefined {
+    return this.backups;
+  }
+
+  /**
+   * Creates an encrypted durable backup for a Dot's computer state.
+   *
+   * Bounded consistency lifecycle:
+   * 1. Prevents concurrent agent operations via backup lock.
+   * 2. Quiesces/stops Chromium when backing up browser-profile to avoid SQLite/LevelDB corruption.
+   * 3. Exports actual files/profile data from provider or computer API.
+   * 4. Uploads and verifies the encrypted backup envelope in Backblaze B2.
+   * 5. Resumes computer if it was running before the operation.
+   * 6. Records and reports failures cleanly.
+   */
+  async snapshot(
+    id: string,
+    type: BackupType = 'workspace',
+    data?: Buffer,
+    signal?: AbortSignal,
+  ) {
+    this.requireDot(id);
+    if (!this.backups) {
+      throw new Error(
+        'Durable backup service is not configured. Configure B2 storage credentials and OPENDOTS_BACKUP_ENCRYPTION_KEY.',
+      );
+    }
+    return this.audited(id, `backup_${type}`, 'owner', async () => {
+      if (this.backupLocks.has(id)) {
+        throw new Error(
+          `Another backup or restore operation is already in progress for Dot ${id}.`,
+        );
+      }
+      this.backupLocks.add(id);
+
+      let stoppedForSnapshot = false;
+      try {
+        // Lifecycle state comes from the provider itself. The control-API probe in
+        // status() reports a running but unresponsive computer as unavailable, which
+        // would skip the stop and export from under a live browser.
+        const wasRunning = await this.isRunning(id, signal);
+
+        let payload: Buffer;
+        if (data) {
+          payload = data;
+        } else {
+          // A direct volume-export provider must snapshot a stable filesystem, even for
+          // workspace-only backups. Browser profiles always require Chromium quiescence.
+          const volumeExport =
+            this.provider.configured && !!this.provider.exportData;
+          const quiescenceRequired =
+            type === 'browser-profile' ||
+            type === 'full-computer' ||
+            volumeExport;
+          if (wasRunning && quiescenceRequired) {
+            stoppedForSnapshot = true;
+            await this.provider.stop(id, signal);
+          }
+          payload = await this.exportComputerData(id, type, wasRunning, signal);
+        }
+
+        const envelope = await this.backups!.createBackup({
+          dotId: id,
+          backupType: type,
+          plaintext: payload,
+          signal,
+        });
+
+        // Resume only when this snapshot actually stopped a previously running computer.
+        if (stoppedForSnapshot) {
+          try {
+            await this.provider.ensure(id, signal);
+            stoppedForSnapshot = false;
+          } catch (resumeErr) {
+            // The outer handler must not retry a resume that just failed.
+            stoppedForSnapshot = false;
+            throw new Error(
+              `Backup created successfully (${envelope.backupId}) but failed to resume computer: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
+          }
+        }
+
+        return envelope;
+      } catch (error) {
+        // Attempt recovery to avoid leaving running computers stopped, and say so if
+        // that recovery fails too.
+        if (stoppedForSnapshot) {
+          try {
+            await this.provider.ensure(id, signal);
+          } catch (resumeErr) {
+            throw new Error(
+              `${error instanceof Error ? error.message : String(error)} Additionally, the computer could not be resumed: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
+          }
+        }
+        throw error;
+      } finally {
+        this.backupLocks.delete(id);
+      }
+    });
+  }
+
+  /**
+   * Restores an encrypted durable backup for a Dot.
+   *
+   * 1. Downloads, authenticates, and decrypts backup from B2.
+   * 2. Validates envelope version, Dot identity, backup identity, and SHA-256 digests.
+   * 3. Validates archive entry paths (path traversal & zip bomb prevention).
+   * 4. Stops computer if running before writing data.
+   * 5. Imports verified data into target computer/volumes.
+   * 6. Resumes computer if it was running before restore.
+   */
+  async restore(
+    id: string,
+    backupId: string,
+    type: BackupType = 'workspace',
+    signal?: AbortSignal,
+  ) {
+    this.requireDot(id);
+    if (!this.backups) {
+      throw new Error(
+        'Durable backup service is not configured. Configure B2 storage credentials and OPENDOTS_BACKUP_ENCRYPTION_KEY.',
+      );
+    }
+    return this.audited(id, `restore_${type}`, 'owner', async () => {
+      if (this.backupLocks.has(id)) {
+        throw new Error(
+          `Another backup or restore operation is already in progress for Dot ${id}.`,
+        );
+      }
+      this.backupLocks.add(id);
+
+      let stoppedForRestore = false;
+      try {
+        // 1. Download and decrypt through BackupService with cryptographic integrity checks
+        const restored = await this.backups!.restoreBackup(
+          id,
+          backupId,
+          type,
+          signal,
+        );
+        if (restored.envelope.backupType !== type) {
+          throw new Error(
+            'Backup type does not match the requested restore type.',
+          );
+        }
+
+        // 2. Validate the ODAR payload (format, type, path safety, budgets) before any
+        // computer state is modified. Unrecognised payloads are never applied.
+        extractArchive(restored.plaintext, undefined, {
+          strict: true,
+          expectedType: type,
+        });
+
+        // Import requires a configured provider. Otherwise returning restored=true
+        // would falsely report success without applying the verified payload.
+        if (!this.provider.configured) {
+          throw new Error(
+            'Computer provider is not configured; backup was verified but not applied.',
+          );
+        }
+        const wasRunning = await this.isRunning(id, signal);
+
+        // Stop for every restore type: even workspace imports can race with shell
+        // processes writing under /workspace, and a Chromium profile needs quiescence.
+        if (wasRunning) {
+          stoppedForRestore = true;
+          await this.provider.stop(id, signal);
+        }
+
+        // 3. Import verified data into the target Dot or its persistent volumes.
+        await this.importComputerData(
+          id,
+          type,
+          restored.plaintext,
+          wasRunning,
+          signal,
+        );
+
+        // 4. Resume only when this restore stopped a previously running computer.
+        if (stoppedForRestore) {
+          try {
+            await this.provider.ensure(id, signal);
+            stoppedForRestore = false;
+          } catch (resumeErr) {
+            stoppedForRestore = false;
+            throw new Error(
+              `Backup ${backupId} was restored but the computer failed to resume: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
+          }
+        }
+
+        // The decrypted payload is deliberately not returned to callers.
+        return {
+          restored: true,
+          backupId,
+          type,
+          dotId: id,
+          byteLength: restored.plaintext.length,
+          envelope: restored.envelope,
+        };
+      } catch (error) {
+        // A failed import leaves the previous data in place (the supervisor rolls back),
+        // so bring a computer this restore stopped back up. Report if that also fails.
+        if (stoppedForRestore) {
+          try {
+            await this.provider.ensure(id, signal);
+          } catch (resumeErr) {
+            throw new Error(
+              `${error instanceof Error ? error.message : String(error)} Additionally, the computer could not be resumed: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
+              { cause: resumeErr },
+            );
+          }
+        }
+        throw error;
+      } finally {
+        this.backupLocks.delete(id);
+      }
+    });
+  }
+
+  private async isRunning(id: string, signal?: AbortSignal) {
+    const state = await this.provider.get(id, signal);
+    return state?.status === 'running';
+  }
+
+  async listBackups(id: string, type?: BackupType, signal?: AbortSignal) {
+    this.requireDot(id);
+    if (!this.backups) return [];
+    return this.backups.listDotBackups(id, type, signal);
+  }
+
+  private async exportComputerData(
+    id: string,
+    type: BackupType,
+    wasRunning: boolean,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    if (this.provider.exportData && this.provider.configured) {
+      // A configured provider hook is authoritative. Do not hide its failures by
+      // silently falling back to text-only file actions, which corrupt binary data.
+      return await this.provider.exportData(id, type, signal);
+    }
+
+    if (type === 'workspace') {
+      let startedForExport = false;
+      if (!wasRunning && this.provider.configured) {
+        await this.provider.ensure(id, signal);
+        startedForExport = true;
+      }
+      try {
+        return await this.exportWorkspaceFiles(id, signal);
+      } finally {
+        if (startedForExport) {
+          await this.provider.stop(id, signal);
+        }
+      }
+    }
+
+    throw new Error(
+      `Computer provider "${this.provider.id}" does not support exporting "${type}" data.`,
+    );
+  }
+
+  private async importComputerData(
+    id: string,
+    type: BackupType,
+    data: Buffer,
+    wasRunning: boolean,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (this.provider.importData && this.provider.configured) {
+      // Do not turn a provider's failed binary import into a text-file fallback.
+      await this.provider.importData(id, type, data, signal);
+      return;
+    }
+
+    if (type === 'workspace') {
+      // This fallback uses the computer HTTP API, so it must run a computer while
+      // the supervisor-backed import path can operate directly on stopped volumes.
+      const current = await this.provider.get(id, signal);
+      const startedForImport = !current || current.status !== 'running';
+      if (startedForImport) await this.provider.ensure(id, signal);
+      try {
+        await this.importWorkspaceFiles(id, data, signal);
+        return;
+      } finally {
+        // Preserve the original lifecycle: leave it running when it was running before
+        // restore; otherwise return a temporary import computer to the stopped state.
+        if (startedForImport && !wasRunning) {
+          await this.provider.stop(id, signal);
+        }
+      }
+    }
+
+    throw new Error(
+      `Computer provider "${this.provider.id}" does not support importing "${type}" data.`,
+    );
+  }
+
+  private async exportWorkspaceFiles(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    const listResult = (await this.action(
+      id,
+      'files_list',
+      { path: '' },
+      'owner',
+      signal,
+    )) as {
+      entries?: Array<{ path: string; isDirectory?: boolean; type?: string }>;
+    };
+
+    const entries = listResult?.entries ?? [];
+    const files = entries.filter(
+      (e) => !e.isDirectory && e.type !== 'directory',
+    );
+
+    const archiveEntries: ArchiveEntry[] = [];
+    for (const file of files) {
+      const readResult = (await this.action(
+        id,
+        'files_read',
+        { path: file.path },
+        'owner',
+        signal,
+      )) as { contents?: string; text?: string; data?: string };
+
+      const content =
+        readResult.contents ?? readResult.text ?? readResult.data ?? '';
+      archiveEntries.push({
+        path: file.path,
+        data: Buffer.from(content, 'utf8'),
+      });
+    }
+
+    return createArchive('workspace', archiveEntries);
+  }
+
+  private async importWorkspaceFiles(
+    id: string,
+    data: Buffer,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const entries = extractArchive(data);
+    for (const entry of entries) {
+      await this.action(
+        id,
+        'files_write',
+        {
+          path: entry.path,
+          contents: entry.data.toString('utf8'),
+        },
+        'owner',
+        signal,
+      );
+    }
   }
 }

@@ -20,6 +20,8 @@ export interface ComputerProviderState {
   endpoint?: string;
 }
 
+import type { BackupType } from './backup/types.js';
+
 export interface ComputerProvider {
   /** Stable identifier used by deployment configuration and diagnostics. */
   readonly id: string;
@@ -34,4 +36,17 @@ export interface ComputerProvider {
   ensure(dotId: string, signal?: AbortSignal): Promise<ComputerProviderState>;
   /** Stop compute without deleting durable profile/workspace state. */
   stop(dotId: string, signal?: AbortSignal): Promise<void>;
+  /** Optional provider-level export for durable volume state (e.g. Docker supervisor or Cloudflare). */
+  exportData?(
+    dotId: string,
+    type: BackupType,
+    signal?: AbortSignal,
+  ): Promise<Buffer>;
+  /** Optional provider-level import to restore durable volume state. */
+  importData?(
+    dotId: string,
+    type: BackupType,
+    data: Buffer,
+    signal?: AbortSignal,
+  ): Promise<void>;
 }

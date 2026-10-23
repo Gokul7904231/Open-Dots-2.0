@@ -65,6 +65,12 @@ const config: PlatformConfig = {
   slackDotId: process.env.SLACK_DOT_ID || undefined,
   runtimeUrl: `http://${host === '::1' ? '[::1]' : '127.0.0.1'}:${port}/api/copilotkit`,
   ownerToken,
+  b2Endpoint: process.env.B2_S3_ENDPOINT || process.env.B2_ENDPOINT,
+  b2Region: process.env.B2_REGION,
+  b2Bucket: process.env.B2_BUCKET || process.env.B2_BUCKET_NAME,
+  b2KeyId: process.env.B2_KEY_ID,
+  b2ApplicationKey: process.env.B2_APPLICATION_KEY,
+  backupEncryptionKey: process.env.OPENDOTS_BACKUP_ENCRYPTION_KEY,
 };
 const platform = new Platform(store, workspace, config);
 const researchConfig = {
@@ -131,10 +137,11 @@ const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
 const shutdown = createShutdown({
   stopRunner: () => runner.stop(),
   stopPlatform: () => platform.stop(),
-  closeServer: () =>
-    new Promise<void>((resolve, reject) =>
+  closeServer: async () => {
+    return new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
-    ),
+    );
+  },
   exit: (code) => process.exit(code),
   report: (operation, error) =>
     reportChannelFailure(operation, [safeFailure(error)]),
