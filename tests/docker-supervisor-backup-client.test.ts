@@ -143,7 +143,7 @@ describe('Docker supervisor backup client', () => {
       RequestInit,
     ];
     expect(url).toBe(
-      'http://127.0.0.1:4312/computers/dot-1/export?type=workspace',
+      'http://127.0.0.1:4312/computers/dot-1/export?type=workspace&format=gzip-tar-v1',
     );
     expect(init.method).toBe('GET');
   });

@@ -337,7 +337,7 @@ export class DockerSupervisorComputerProvider implements ComputerProvider {
     let response: Response;
     try {
       response = await this.transport(
-        `${base}/computers/${dotId}/export?type=${encodeURIComponent(type)}`,
+        `${base}/computers/${dotId}/export?type=${encodeURIComponent(type)}&format=gzip-tar-v1`,
         {
           method: 'GET',
           headers: {

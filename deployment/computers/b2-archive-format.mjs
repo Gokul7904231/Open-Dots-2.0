@@ -118,6 +118,32 @@ export function encodeOdar(type, entries) {
   return encoded;
 }
 
+export function encodeTarGzip(type, entries) {
+  if (!BACKUP_TYPES.has(type)) throw new Error('Unsupported backup type.');
+  const tar = createTarArchive(entries);
+  const encoded = gzipSync(tar);
+  if (encoded.length > ARCHIVE_LIMITS.maxArchiveBytes)
+    throw new Error('Encoded backup exceeds the archive-size limit.');
+  return encoded;
+}
+
+function isTarArchive(buffer) {
+  if (buffer.length < 512 || buffer.length % 512 !== 0) return false;
+  const magic = buffer.subarray(257, 262).toString('ascii');
+  if (magic === 'ustar') return true;
+  try {
+    const header = buffer.subarray(0, 512);
+    if (header.every((b) => b === 0)) return true;
+    const storedChecksum = octalAt(header, 148, 8);
+    const checksumHeader = Buffer.from(header);
+    checksumHeader.fill(0x20, 148, 156);
+    const actualChecksum = checksumHeader.reduce((sum, byte) => sum + byte, 0);
+    return storedChecksum === actualChecksum;
+  } catch {
+    return false;
+  }
+}
+
 export function decodeOdar(input, expectedType) {
   const packed = Buffer.from(input);
   if (!packed.length || packed.length > ARCHIVE_LIMITS.maxArchiveBytes) {
@@ -129,53 +155,64 @@ export function decodeOdar(input, expectedType) {
   if (packed.length >= 2 && packed[0] === 0x1f && packed[1] === 0x8b) {
     decoded = gunzipSync(packed, { maxOutputLength: 800 * 1024 * 1024 });
   }
-  let document;
-  try {
-    document = JSON.parse(decoded.toString('utf8'));
-  } catch {
-    throw new Error('Backup archive is not a valid ODAR document.');
-  }
-  if (document?.magic !== 'ODAR' || document?.version !== 1)
-    throw new Error('Unsupported backup archive format.');
-  if (!BACKUP_TYPES.has(document.type) || document.type !== expectedType) {
-    throw new Error(
-      'Backup archive type does not match the requested operation.',
-    );
-  }
-  if (
-    !Array.isArray(document.files) ||
-    document.files.length > ARCHIVE_LIMITS.maxFiles
-  ) {
-    throw new Error('Backup archive contains an invalid file list.');
-  }
-  const entries = document.files.map((file) => {
-    const path = safeArchivePath(file?.path);
-    if (
-      typeof file.dataBase64 !== 'string' ||
-      file.dataBase64.length > (ARCHIVE_LIMITS.maxSingleFileBytes * 4) / 3 + 8
-    ) {
-      throw new Error('Backup archive contains invalid file data.');
+  const firstByte = decoded.find(
+    (b) => b !== 0x20 && b !== 0x09 && b !== 0x0a && b !== 0x0d,
+  );
+  if (firstByte === 0x7b) {
+    let document;
+    try {
+      document = JSON.parse(decoded.toString('utf8'));
+    } catch {
+      throw new Error('Backup archive is not a valid ODAR document.');
     }
-    const data = Buffer.from(file.dataBase64, 'base64');
-    if (
-      data.toString('base64') !== file.dataBase64 ||
-      data.length !== file.size
-    ) {
+    if (document?.magic !== 'ODAR' || document?.version !== 1)
+      throw new Error('Unsupported backup archive format.');
+    if (!BACKUP_TYPES.has(document.type) || document.type !== expectedType) {
       throw new Error(
-        'Backup archive file size or base64 encoding is invalid.',
+        'Backup archive type does not match the requested operation.',
       );
     }
-    if (data.length > ARCHIVE_LIMITS.maxSingleFileBytes)
-      throw new Error('Backup archive file exceeds the per-file limit.');
-    return {
-      path,
-      data,
-      mtime: normalizeMtime(file.mtime),
-      mode: Number.isSafeInteger(file.mode) ? file.mode & 0o777 : 0o644,
-    };
-  });
-  assertBudget(entries);
-  return entries;
+    if (
+      !Array.isArray(document.files) ||
+      document.files.length > ARCHIVE_LIMITS.maxFiles
+    ) {
+      throw new Error('Backup archive contains an invalid file list.');
+    }
+    const entries = document.files.map((file) => {
+      const path = safeArchivePath(file?.path);
+      if (
+        typeof file.dataBase64 !== 'string' ||
+        file.dataBase64.length > (ARCHIVE_LIMITS.maxSingleFileBytes * 4) / 3 + 8
+      ) {
+        throw new Error('Backup archive contains invalid file data.');
+      }
+      const data = Buffer.from(file.dataBase64, 'base64');
+      if (
+        data.toString('base64') !== file.dataBase64 ||
+        data.length !== file.size
+      ) {
+        throw new Error(
+          'Backup archive file size or base64 encoding is invalid.',
+        );
+      }
+      if (data.length > ARCHIVE_LIMITS.maxSingleFileBytes)
+        throw new Error('Backup archive file exceeds the per-file limit.');
+      return {
+        path,
+        data,
+        mtime: normalizeMtime(file.mtime),
+        mode: Number.isSafeInteger(file.mode) ? file.mode & 0o777 : 0o644,
+      };
+    });
+    assertBudget(entries);
+    return entries;
+  }
+
+  if (isTarArchive(decoded)) {
+    return parseTarArchive(decoded, '', expectedType);
+  }
+
+  throw new Error('Backup archive is not a valid ODAR document.');
 }
 
 function parsePax(buffer) {

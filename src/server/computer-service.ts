@@ -22,8 +22,18 @@ const controlSchema = z.object({
   request: z.object({ id: z.string(), status: z.string() }).optional(),
 });
 import {
+  createReadStream,
+  createWriteStream,
+  promises as fsPromises,
+  type WriteStream,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
   createArchive,
   extractArchive,
+  preflightStagingSpace,
+  validateArchiveFile,
   type ArchiveEntry,
   type BackupService,
   type BackupType,
@@ -713,69 +723,93 @@ export class ComputerService {
 
       try {
         const MAX_STAGE_BYTES = 600 * 1024 * 1024;
-        const stagedChunks: Buffer[] = [];
         let totalStagedBytes = 0;
         const provider = this.provider;
+
+        // 1. Isolated filesystem staging
+        const stageDir = await fsPromises.mkdtemp(
+          join(tmpdir(), `opendots-stage-${id}-`),
+        );
+        const stagingPath = join(stageDir, 'staged-backup.payload');
+
+        // 2. Preflight disk check
+        await preflightStagingSpace(stageDir, MAX_STAGE_BYTES);
+
+        let fileStream: WriteStream | undefined;
 
         const result = await this.backups!.restoreStreamingBackup({
           dotId: id,
           backupId,
           backupType: type,
           signal,
-          createStage: async () => ({
-            async write(chunk: Uint8Array) {
-              totalStagedBytes += chunk.length;
-              if (totalStagedBytes > MAX_STAGE_BYTES) {
-                throw new Error(
-                  'Staged backup payload exceeded maximum allowed size.',
-                );
-              }
-              stagedChunks.push(Buffer.from(chunk));
-            },
-            async validate() {
-              const fullPayload = Buffer.concat(stagedChunks);
-              extractArchive(fullPayload, undefined, {
-                strict: true,
-                expectedType: type,
-              });
-            },
-            async commit() {
-              if (wasRunning && !stoppedForRestore) {
-                stoppedForRestore = true;
-                await provider.stop(id, signal);
-              }
-
-              const fullPayload = Buffer.concat(stagedChunks);
-              if (provider.importDataStream) {
-                async function* payloadStream() {
-                  yield fullPayload;
+          createStage: async () => {
+            fileStream = createWriteStream(stagingPath);
+            return {
+              async write(chunk: Uint8Array) {
+                totalStagedBytes += chunk.length;
+                if (totalStagedBytes > MAX_STAGE_BYTES) {
+                  throw new Error(
+                    'Staged backup payload exceeded maximum allowed size.',
+                  );
                 }
-                await provider.importDataStream(
-                  id,
-                  type,
-                  payloadStream(),
-                  signal,
-                );
-              } else if (provider.importData) {
-                await provider.importData(id, type, fullPayload, signal);
-              } else {
-                throw new Error(
-                  `Computer provider "${provider.id}" does not support importing backup data.`,
-                );
-              }
+                await new Promise<void>((resolve, reject) => {
+                  if (!fileStream!.write(chunk)) {
+                    fileStream!.once('drain', resolve);
+                    fileStream!.once('error', reject);
+                  } else {
+                    process.nextTick(resolve);
+                  }
+                });
+              },
+              async validate() {
+                await new Promise<void>((resolve, reject) => {
+                  fileStream!.end((err?: Error | null) =>
+                    err ? reject(err) : resolve(),
+                  );
+                });
+                await validateArchiveFile(stagingPath, {
+                  strict: true,
+                  expectedType: type,
+                });
+              },
+              async commit() {
+                if (wasRunning && !stoppedForRestore) {
+                  stoppedForRestore = true;
+                  await provider.stop(id, signal);
+                }
 
-              return {
-                restored: true,
-                backupId,
-                type,
-                dotId: id,
-                byteLength: totalStagedBytes,
-              };
-            },
-            async rollback() {
-              stagedChunks.length = 0;
-            },
-          }),
+                if (provider.importDataStream) {
+                  const readStream = createReadStream(stagingPath);
+                  await provider.importDataStream(id, type, readStream, signal);
+                } else if (provider.importData) {
+                  const fullPayload = await fsPromises.readFile(stagingPath);
+                  await provider.importData(id, type, fullPayload, signal);
+                } else {
+                  throw new Error(
+                    `Computer provider "${provider.id}" does not support importing backup data.`,
+                  );
+                }
+
+                await fsPromises
+                  .rm(stageDir, { recursive: true, force: true })
+                  .catch(() => {});
+
+                return {
+                  restored: true,
+                  backupId,
+                  type,
+                  dotId: id,
+                  byteLength: totalStagedBytes,
+                };
+              },
+              async rollback() {
+                fileStream?.destroy();
+                await fsPromises
+                  .rm(stageDir, { recursive: true, force: true })
+                  .catch(() => {});
+              },
+            };
+          },
         });
 
         if (stoppedForRestore) {
