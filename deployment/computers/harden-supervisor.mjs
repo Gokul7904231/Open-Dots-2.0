@@ -1,30 +1,48 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
+import { readFile, writeFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
-// Fail closed if the pinned upstream contract changes. Only child authentication
-// changes; OpenBot retains ownership of container creation, volumes and lifecycle.
+// Fail closed when the exact pinned upstream contract changes. We patch only
+// child authentication and the two narrowly-scoped backup routes.
 export function hardenSupervisorEnvironment(source) {
-  const before =
-    'const computerToken = env.COMPUTER_TOKEN?.trim() || undefined;';
-  if (source.split(before).length !== 2)
-    throw new Error(
-      'Pinned OpenBot environment contract changed; review before building.',
-    );
-  return `import { createHmac } from "node:crypto";\n${source.replace(
+  const before = "const computerToken = env.COMPUTER_TOKEN?.trim() || undefined;";
+  if (source.split(before).length !== 2) {
+    throw new Error("Pinned OpenBot environment contract changed; review before building.");
+  }
+  return "import { createHmac } from \"node:crypto\";\n" + source.replace(
     before,
-    `const master = env.COMPUTER_TOKEN?.trim();
-  if (!master || master.length < 24) throw new Error("COMPUTER_TOKEN must contain at least 24 characters.");
-  const computerToken = createHmac("sha256", master).update("opendots-computer:" + botId).digest("hex");`,
-  )}`;
-}
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  const path = process.argv[2];
-  if (!path) throw new Error('Pass the pinned supervisor environment.ts path.');
-  await writeFile(
-    path,
-    hardenSupervisorEnvironment(await readFile(path, 'utf8')),
+    "const master = env.COMPUTER_TOKEN?.trim();\n" +
+      "  if (!master || master.length < 24) throw new Error(\"COMPUTER_TOKEN must contain at least 24 characters.\");\n" +
+      "  const computerToken = createHmac(\"sha256\", master).update(\"opendots-computer:\" + botId).digest(\"hex\");",
   );
+}
+
+export function hardenSupervisorIndex(source) {
+  const importAnchor = 'import { listenPort } from "./listen-port";';
+  const serveAnchor = "serve({ port, fetch: app.fetch, idleTimeout: 120 });";
+  if (source.split(importAnchor).length !== 2) {
+    throw new Error("Pinned OpenBot index import contract changed; review before building.");
+  }
+  if (source.split(serveAnchor).length !== 2) {
+    throw new Error("Pinned OpenBot server-start contract changed; review before building.");
+  }
+  const withImport = source.replace(
+    importAnchor,
+    importAnchor + '\nimport { attachBackupRoutes } from "./b2-archive-supervisor.mjs";',
+  );
+  return withImport.replace(
+    serveAnchor,
+    "attachBackupRoutes(app, resolve);\n\n" + serveAnchor,
+  );
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const environmentPath = process.argv[2];
+  const indexPath = process.argv[3];
+  if (!environmentPath || !indexPath) {
+    throw new Error("Pass both the pinned supervisor environment.ts and index.ts paths.");
+  }
+  const environment = await hardenSupervisorEnvironment(await readFile(environmentPath, "utf8"));
+  const index = await hardenSupervisorIndex(await readFile(indexPath, "utf8"));
+  await writeFile(environmentPath, environment);
+  await writeFile(indexPath, index);
 }
