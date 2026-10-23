@@ -68,7 +68,7 @@ export class BackupService {
       },
       compatibility: {
         computerImage: options.computerImage ?? 'opendots-computer:b6932d3',
-        archiveFormat: options.archiveFormat ?? 'tar',
+        archiveFormat: options.archiveFormat ?? 'json',
       },
     };
 
