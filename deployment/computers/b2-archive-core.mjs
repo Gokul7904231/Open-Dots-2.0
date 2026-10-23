@@ -507,7 +507,31 @@ export function createBackupSupervisor({
   async function putEntries(helper, stagePath, entries, signal) {
     await runHelper(helper, 'mkdir -p ' + shellPath(stagePath), signal);
     const tar = createTarArchive(entries);
-    await helper.putArchive(tar, { path: stagePath });
+    try {
+      await helper.putArchive(tar, { path: stagePath });
+    } catch (error) {
+      // Dockerode's putArchive failure is not a shell command, so runHelper cannot
+      // report it. Keep the HTTP response generic, but expose the failing phase and
+      // bounded, content-free Docker error in supervisor logs for live qualification.
+      const detail =
+        error instanceof Error
+          ? error.message.replace(/[\\r\\n\\t]+/g, ' ').slice(0, 400)
+          : String(error).replace(/[\\r\\n\\t]+/g, ' ').slice(0, 400);
+      logHelperFailure(
+        'Backup helper archive upload failed (target=' +
+          stagePath +
+          ', entries=' +
+          String(entries.length) +
+          ', tarBytes=' +
+          String(tar.length ?? 'unknown') +
+          '): ' +
+          detail,
+      );
+      throw new BackupRouteError(
+        500,
+        'Backup helper could not write archive data to the staging directory.',
+      );
+    }
   }
 
   function listChildren(dir) {
