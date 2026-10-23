@@ -1,0 +1,22 @@
+name: Temporary ODAR Stream Format Diff
+on:
+  push:
+    branches:
+      - feat/odar-stream-v2-20261023
+permissions:
+  contents: read
+jobs:
+  format-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Format the changed files in the ephemeral runner
+        run: npx prettier --write src/server/backup/b2-adapter.ts tests/b2-backup.test.ts
+      - name: Print exact formatting diff
+        run: git diff --unified=3 -- src/server/backup/b2-adapter.ts tests/b2-backup.test.ts
