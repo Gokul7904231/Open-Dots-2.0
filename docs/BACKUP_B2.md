@@ -135,7 +135,7 @@ All backup routes are mounted under `/api` and require owner authentication:
 
 | Provider                                           | Workspace Backup / Restore                                             | Browser Profile Backup / Restore                                                      | Status                                                             |
 | -------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| **Local Docker Supervisor** (`docker-supervisor`)  | Supported (direct HTTP file action & supervisor archive export/import) | Supported (quiescent volume export/import via `/computers/:botId/export` & `/import`) | **Verified**                                                       |
+| **Local Docker Supervisor** (`docker-supervisor`)  | Provider client hooks exist; pinned supervisor export/import routes need implementation and build verification | Browser-profile volume export/import needs real stop/export/restore/resume qualification | **NOT LIVE-QUALIFIED** |
 | **Cloudflare Containers** (`cloudflare-container`) | Supported via workspace file actions                                   | Pending container volume tar export hooks                                             | Partially supported                                                |
 | **Vercel Sandbox / CodeSandbox**                   | Pending filesystem export integration                                  | Pending microVM snapshot export API                                                   | **Pending** (requires remote sandbox provider export/import hooks) |
 
@@ -168,3 +168,7 @@ The live qualification probe uploads a small temporary test envelope to B2, veri
 ```bash
 npx tsx --env-file-if-exists=.env tests/b2-smoke.ts --run
 ```
+
+### Live B2 object test with a mocked computer provider
+
+`tests/b2-live-storage-mock-provider-qualification.ts` exercises live B2 object operations and encryption through the OpenDots API, but it uses an in-memory virtual filesystem and a mocked computer provider. It is **not** a real Docker or supervisor qualification. Do not mark Docker workspace/profile restore as verified until the pinned supervisor image implements its export/import routes and the actual Docker-backed marker/cookie round trip passes.
