@@ -203,8 +203,11 @@ export function parseTarArchive(input, rootPath, type) {
     const safePath = safeArchivePath(relativePath);
     if (typeflag === "5") continue;
     if (typeflag === "2" || typeflag === "1") {
+      const baseName = safePath.split("/").at(-1);
+      // Chromium may leave these stale singleton links in the profile root or
+      // inside Default. They are process coordination artifacts, not durable data.
       const singleton = type === "browser-profile" &&
-        ["SingletonLock", "SingletonSocket", "SingletonCookie"].includes(safePath);
+        ["SingletonLock", "SingletonSocket", "SingletonCookie"].includes(baseName);
       if (singleton) continue;
       throw new Error("Symbolic and hard links are not permitted in computer backups.");
     }
