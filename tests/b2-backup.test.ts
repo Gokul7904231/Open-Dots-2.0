@@ -331,7 +331,6 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
       'timed out or was cancelled',
     );
   });
-});
 
   it('streams small objects through PutObject without collecting more than the bounded first part', async () => {
     const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
@@ -509,7 +508,7 @@ describe('B2 Storage Adapter & Secret Redaction', () => {
     expect(result.metadata).toEqual({ 'dot-id': 'dot-alpha' });
     expect(result.versionId).toBe('v3');
   });
-
+});
 
 describe('BackupService End-to-End Workflow & Tenant Isolation', () => {
   class MemoryStorageAdapter implements StorageAdapter {
