@@ -357,6 +357,7 @@ export class B2StorageAdapter implements StorageAdapter {
     stream: AsyncIterable<Uint8Array>;
     metadata?: Record<string, string>;
     versionId?: string;
+    cancel?: () => Promise<void> | void;
   }> {
     const controller = new AbortController();
     const timeout = setTimeout(
@@ -452,10 +453,19 @@ export class B2StorageAdapter implements StorageAdapter {
       },
     };
 
+    const cancel = async () => {
+      clearTimeout(timeout);
+      if (!controller.signal.aborted) {
+        controller.abort(new Error('B2 streaming read was cancelled.'));
+      }
+      abortBody();
+    };
+
     return {
       stream,
       metadata: response.Metadata,
       versionId: response.VersionId,
+      cancel,
     };
   }
 
