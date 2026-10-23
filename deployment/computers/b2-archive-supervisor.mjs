@@ -64,9 +64,11 @@ async function inspectOwnedComputer(names, allowMissing = false) {
     }
     return info;
   } catch (error) {
+    // Do not mistake our own 404 for an absent Docker container: that is how an
+    // unowned container with a colliding name could otherwise be adopted.
+    if (error instanceof BackupRouteError) throw error;
     if (error?.statusCode === 404 && allowMissing) return null;
     if (error?.statusCode === 404) throw new BackupRouteError(404, "Computer not found.");
-    if (error instanceof BackupRouteError) throw error;
     throw new BackupRouteError(503, "Computer supervisor could not inspect the computer.");
   }
 }
@@ -136,8 +138,8 @@ async function exportPath(container, path, archiveType, signal) {
 export async function exportComputerData(names, rawType, signal) {
   const type = safeBackupType(rawType);
   const info = await inspectOwnedComputer(names);
-  if ((type === "browser-profile" || type === "full-computer") && info.State?.Running) {
-    throw new BackupRouteError(409, "Stop the computer before exporting its Chromium profile.");
+  if (info.State?.Running) {
+    throw new BackupRouteError(409, "Stop the computer before exporting persistent volume data.");
   }
   await ensureOwnedVolume(names.workspaceVolume, names);
   await ensureOwnedVolume(names.profileVolume, names);
@@ -341,6 +343,12 @@ async function rollbackProfile(helper, state, signal) {
 export async function importComputerData(names, rawType, input, signal) {
   const type = safeBackupType(rawType);
   const entries = decodeOdar(input, type);
+  // A stopped or deleted computer may be restored directly into its owned named
+  // volumes. A running container is never allowed to race profile/workspace writes.
+  const computer = await inspectOwnedComputer(names, true);
+  if (computer?.State?.Running) {
+    throw new BackupRouteError(409, "Stop the computer before importing persistent volume data.");
+  }
   await ensureOwnedVolume(names.workspaceVolume, names);
   await ensureOwnedVolume(names.profileVolume, names);
 
