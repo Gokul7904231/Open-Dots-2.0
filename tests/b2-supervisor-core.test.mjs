@@ -613,7 +613,7 @@ describe('supervisor import', () => {
   it('a cleanup failure after commit keeps the restored data and reports success', async () => {
     harness = createHarness({
       failExec: (command) =>
-        command.startsWith('rm -rf') && command.includes('rollback'),
+        command.includes('rm -rf') && command.includes('rollback'),
     });
     writeFileSync(harness.ws('old.txt'), 'old');
     const response = await harness.importOf(
