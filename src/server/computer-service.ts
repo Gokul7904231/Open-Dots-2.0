@@ -402,6 +402,7 @@ export class ComputerService {
       this.backupLocks.add(id);
 
       let wasRunning = false;
+      let stoppedForSnapshot = false;
       try {
         const currentStatus = await this.status(id);
         wasRunning = currentStatus.state === 'running';
@@ -410,11 +411,15 @@ export class ComputerService {
         if (data) {
           payload = data;
         } else {
-          // Chromium profiles must be stopped to prevent dirty/locked LevelDB and SQLite files
-          if (
-            wasRunning &&
-            (type === 'browser-profile' || type === 'full-computer')
-          ) {
+          // A direct volume-export provider must snapshot a stable filesystem, even for
+          // workspace-only backups. Browser profiles always require Chromium quiescence.
+          const volumeExport = this.provider.configured && !!this.provider.exportData;
+          const quiescenceRequired =
+            type === 'browser-profile' ||
+            type === 'full-computer' ||
+            volumeExport;
+          if (wasRunning && quiescenceRequired) {
+            stoppedForSnapshot = true;
             await this.provider.stop(id, signal);
           }
           payload = await this.exportComputerData(id, type, wasRunning, signal);
@@ -427,13 +432,11 @@ export class ComputerService {
           signal,
         });
 
-        // Resume computer if it was running before the snapshot
-        if (
-          wasRunning &&
-          (type === 'browser-profile' || type === 'full-computer')
-        ) {
+        // Resume only when this snapshot actually stopped a previously running computer.
+        if (stoppedForSnapshot) {
           try {
             await this.provider.ensure(id, signal);
+            stoppedForSnapshot = false;
           } catch (resumeErr) {
             throw new Error(
               `Backup created successfully (${envelope.backupId}) but failed to resume computer: ${resumeErr instanceof Error ? resumeErr.message : String(resumeErr)}`,
@@ -444,11 +447,8 @@ export class ComputerService {
 
         return envelope;
       } catch (error) {
-        // Attempt recovery to avoid leaving running computers stopped
-        if (
-          wasRunning &&
-          (type === 'browser-profile' || type === 'full-computer')
-        ) {
+        // Attempt recovery to avoid leaving running computers stopped.
+        if (stoppedForSnapshot) {
           try {
             await this.provider.ensure(id, signal);
           } catch {
