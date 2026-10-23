@@ -20,6 +20,7 @@ export interface B2StorageConfig {
   keyId: string;
   applicationKey: string;
   timeoutMs?: number;
+  streamTimeoutMs?: number;
   maxRetries?: number;
 }
 
@@ -27,6 +28,8 @@ const B2_ENDPOINT_REGEX = /^https:\/\/s3\.[a-z0-9-]+\.backblazeb2\.com$/;
 const B2_MULTIPART_MIN_PART_BYTES = 5 * 1024 * 1024;
 const B2_MAX_MULTIPART_PARTS = 10_000;
 const MAX_BACKUP_DOWNLOAD_BYTES = 500 * 1024 * 1024;
+const MAX_STREAM_BACKUP_DOWNLOAD_BYTES = 650 * 1024 * 1024;
+const DEFAULT_B2_STREAM_TIMEOUT_MS = 15 * 60 * 1000;
 
 class AsyncByteReader {
   private readonly iterator: AsyncIterator<Uint8Array>;
@@ -154,10 +157,13 @@ export class B2StorageAdapter implements StorageAdapter {
   private bucket: string;
   private secretsToRedact: string[];
   private defaultTimeoutMs: number;
+  private streamTimeoutMs: number;
 
   constructor(config: B2StorageConfig, customClient?: S3Client) {
     this.bucket = config.bucket;
     this.defaultTimeoutMs = config.timeoutMs ?? 30000;
+    this.streamTimeoutMs =
+      config.streamTimeoutMs ?? DEFAULT_B2_STREAM_TIMEOUT_MS;
     this.secretsToRedact = [config.keyId, config.applicationKey].filter(
       Boolean,
     );
@@ -192,9 +198,10 @@ export class B2StorageAdapter implements StorageAdapter {
   private async executeWithTimeout<T>(
     fn: (signal: AbortSignal) => Promise<T>,
     externalSignal?: AbortSignal,
+    timeoutMs = this.defaultTimeoutMs,
   ): Promise<T> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.defaultTimeoutMs);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const combinedSignal = externalSignal
       ? AbortSignal.any([externalSignal, controller.signal])
       : controller.signal;
@@ -343,7 +350,7 @@ export class B2StorageAdapter implements StorageAdapter {
       } finally {
         await reader.close().catch(() => undefined);
       }
-    }, signal);
+    }, signal, this.streamTimeoutMs);
   }
 
   /**
@@ -362,7 +369,7 @@ export class B2StorageAdapter implements StorageAdapter {
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(new Error('B2 streaming read timed out.')),
-      this.defaultTimeoutMs,
+      this.streamTimeoutMs,
     );
     const activeSignal = signal
       ? AbortSignal.any([signal, controller.signal])
@@ -425,9 +432,9 @@ export class B2StorageAdapter implements StorageAdapter {
               throw new Error('B2 returned a non-binary stream chunk.');
             }
             totalBytes += next.value.byteLength;
-            if (totalBytes > MAX_BACKUP_DOWNLOAD_BYTES) {
+            if (totalBytes > MAX_STREAM_BACKUP_DOWNLOAD_BYTES) {
               throw new Error(
-                'Backup object exceeds maximum download limit (500MB).',
+                'Backup object exceeds maximum streaming download limit (650MiB).',
               );
             }
             yield next.value;
