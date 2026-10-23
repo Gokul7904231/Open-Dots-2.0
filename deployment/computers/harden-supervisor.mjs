@@ -25,11 +25,39 @@ export function hardenSupervisorIndex(source) {
   if (source.split(serveAnchor).length !== 2) {
     throw new Error("Pinned OpenBot server-start contract changed; review before building.");
   }
-  const withImport = source.replace(
+  let next = source.replace(
     importAnchor,
-    importAnchor + '\nimport { attachBackupRoutes } from "./b2-archive-supervisor.mjs";',
+    importAnchor + '\nimport { attachBackupRoutes, isBackupLocked } from "./b2-archive-supervisor.mjs";',
   );
-  return withImport.replace(
+
+  const guardedActions = [
+    {
+      action: "ensure",
+      anchor: '  if (!parsed.ok) return context.json({ error: parsed.reason }, 400);\n\n  try {',
+    },
+    {
+      action: "stop",
+      anchor: '  if (!parsed.ok) return context.json({ error: parsed.reason }, 400);\n  try {\n    const stopped = await stop(parsed.names);',
+    },
+    {
+      action: "reset",
+      anchor: '  if (!parsed.ok) return context.json({ error: parsed.reason }, 400);\n  try {\n    const wasThere = await reset(parsed.names);',
+    },
+  ];
+  for (const item of guardedActions) {
+    if (next.split(item.anchor).length !== 2) {
+      throw new Error("Pinned OpenBot " + item.action + " route contract changed; review before building.");
+    }
+    const insertion = item.action === "ensure"
+      ? '  if (isBackupLocked(parsed.names.botId)) return context.json({ error: "Computer is being backed up or restored." }, 409);\n\n  try {'
+      : item.action === "stop"
+        ? '  if (isBackupLocked(parsed.names.botId)) return context.json({ error: "Computer is being backed up or restored." }, 409);\n  try {\n    const stopped = await stop(parsed.names);'
+        : '  if (isBackupLocked(parsed.names.botId)) return context.json({ error: "Computer is being backed up or restored." }, 409);\n  try {\n    const wasThere = await reset(parsed.names);';
+    next = next.replace(item.anchor, insertion);
+  }
+
+  const attachAnchor = '  serveAnchor';
+  return next.replace(
     serveAnchor,
     "attachBackupRoutes(app, resolve);\n\n" + serveAnchor,
   );
