@@ -476,6 +476,11 @@ async function main() {
       'Workspace marker recovered exactly after delete → export → import → read through the real computer.',
     );
 
+    // Starting a computer invalidates browser refs. Refresh before the next browser
+    // action so the gateway never retries against stale refs.
+    await action(dotId, 'snapshot', {});
+    logPass('Refreshed browser snapshot after workspace restore.');
+
     // -------- Browser-profile archive round trip through the actual volume --------
     const cookieSetter = new URL('https://httpbin.org/response-headers');
     cookieSetter.searchParams.set('Set-Cookie', cookie);
@@ -565,6 +570,8 @@ async function main() {
       'POST',
       {},
     );
+    await action(dotId, 'snapshot', {});
+    logPass('Refreshed browser snapshot after profile restore.');
     const cookieAfter = await action(dotId, 'navigate', {
       url: 'https://httpbin.org/cookies',
     });
@@ -603,6 +610,8 @@ async function main() {
         '/dots/' + encodeURIComponent(dotId) + '/computer',
       );
       if (status.state === 'running' && cookieName) {
+        // Do not attempt cookie cleanup with browser refs left stale by a restart.
+        await action(dotId, 'snapshot', {});
         const expireCookie = new URL('https://httpbin.org/response-headers');
         expireCookie.searchParams.set(
           'Set-Cookie',
