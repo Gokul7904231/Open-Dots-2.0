@@ -90,6 +90,7 @@ function createHarness(options = {}) {
   const root = posix(mkdtempSync(join(tmpdir(), 'od-sup-')));
   mkdirSync(join(root, 'workspace'), { recursive: true });
   mkdirSync(join(root, 'profiles', 'dot-a'), { recursive: true });
+  mkdirSync(join(root, 'shm'), { recursive: true });
   const state = {
     containers: new Map([
       [`${NS}-computer-dot-a`, { running: false, owned: true }],
@@ -102,6 +103,7 @@ function createHarness(options = {}) {
     created: [],
     removed: 0,
     execLog: [],
+    execStartOptions: [],
     createVolumeCalls: 0,
   };
   const labelsFor = (bot) => ({
@@ -112,7 +114,8 @@ function createHarness(options = {}) {
   const mapPath = (command) =>
     command
       .replaceAll('/workspace', `${root}/workspace`)
-      .replaceAll('/profiles', `${root}/profiles`);
+      .replaceAll('/profiles', `${root}/profiles`)
+      .replaceAll('/dev/shm', `${root}/shm`);
 
   const docker = {
     getContainer(name) {
@@ -171,11 +174,12 @@ function createHarness(options = {}) {
       state.execLog.push(command);
       if (options.failExec?.(command, state)) {
         return {
-          async start() {
+          async start(startOptions) {
+            state.execStartOptions.push(startOptions);
             return Readable.from([Buffer.from('')]);
           },
           async inspect() {
-            return { ExitCode: 1 };
+            return { ExitCode: 1, Running: false };
           },
         };
       }
@@ -185,19 +189,29 @@ function createHarness(options = {}) {
         );
       });
       return {
-        async start() {
+        async start(startOptions) {
+          state.execStartOptions.push(startOptions);
           return Readable.from([Buffer.from('')]);
         },
         async inspect() {
-          return { ExitCode: code };
+          return { ExitCode: code, Running: false };
         },
       };
     };
     helper.getArchive = async ({ path }) => {
-      const real = join(root, path);
+      const base = path.split('/').filter(Boolean).at(-1);
+      const real = path.startsWith('/dev/shm/')
+        ? join(root, 'shm', base)
+        : join(root, path);
       if (!existsSync(real))
         throw Object.assign(new Error('not found'), { statusCode: 404 });
-      const base = path.split('/').filter(Boolean).at(-1);
+      if (path.startsWith('/dev/shm/')) {
+        return Readable.from([
+          buildTar([
+            { name: base, type: '0', data: readFileSync(real), mode: 0o600 },
+          ]),
+        ]);
+      }
       const entries = [{ name: `${base}/`, type: '5' }];
       for (const item of walk(real)) {
         if (item.link) entries.push({ name: `${base}/${item.rel}`, type: '2' });
@@ -382,6 +396,35 @@ describe('supervisor export', () => {
     expect(response.status).toBe(404);
     expect(harness.state.created).toHaveLength(0);
     expect(harness.state.createVolumeCalls).toBe(0);
+  });
+
+  it('starts helper filesystem commands without hijacking Docker HTTP 101 streams', async () => {
+    harness = createHarness();
+    writeFileSync(harness.ws('before.txt'), 'old data');
+    const archive = encodeOdar('workspace', [
+      {
+        path: 'restored.txt',
+        data: Buffer.from('restored data'),
+        mtime: 1_700_000_000,
+        mode: 0o644,
+      },
+    ]);
+
+    const response = await harness.importOf('workspace', archive);
+
+    expect(response.status).toBe(200);
+    expect(readFileSync(harness.ws('restored.txt'), 'utf8')).toBe(
+      'restored data',
+    );
+    expect(harness.state.execStartOptions.length).toBeGreaterThan(0);
+    expect(
+      harness.state.execStartOptions.every(
+        (options) =>
+          options.Detach === true &&
+          options.Tty === false &&
+          options.hijack === false,
+      ),
+    ).toBe(true);
   });
 
   it("runs the helper with only this Dot's volumes, no network and no capabilities", async () => {
