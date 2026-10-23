@@ -240,6 +240,20 @@ export class BackupService {
       objectKey,
       options.signal,
     );
+    const metadata = stored.metadata ?? {};
+    const identityMetadataMatches =
+      metadata['backup-version'] === '2' &&
+      metadata['backup-format'] === 'odar-stream-v2' &&
+      metadata['dot-id'] === options.dotId &&
+      metadata['backup-id'] === options.backupId &&
+      metadata['backup-type'] === options.backupType;
+    if (!identityMetadataMatches) {
+      await stored.cancel?.();
+      throw new Error(
+        'Requested ODAR-Stream v2 restore, but storage metadata does not match the requested V2 backup identity.',
+      );
+    }
+
     const stage = await options.createStage();
     const identity: OdarStreamV2Identity = {
       dotId: options.dotId,
