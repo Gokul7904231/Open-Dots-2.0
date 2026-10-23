@@ -311,24 +311,55 @@ export function createBackupSupervisor({
       User: '0',
       AttachStdout: true,
       AttachStderr: true,
+      // TTY mode merges stdout/stderr into one bounded diagnostic stream.
+      // These commands are filesystem operations only; never pass credentials here.
       Tty: true,
     });
     const stream = await exec.start({ hijack: true, stdin: false });
-    await collectExec(stream, signal);
+    const output = await collectExec(stream, signal);
     const result = await exec.inspect();
-    return result.ExitCode;
+    return { exitCode: result.ExitCode, output };
+  }
+
+  function logHelperFailure(message) {
+    // Preserve the client-facing generic error while leaving enough diagnostic
+    // detail in supervisor logs to identify a failed filesystem operation.
+    if (typeof log.error === 'function') log.error(message);
+    else if (typeof log.warn === 'function') log.warn(message);
   }
 
   async function runHelper(helper, command, signal) {
     try {
-      const code = await execExitCode(helper, command, signal);
-      if (code !== 0)
+      const result = await execExitCode(helper, command, signal);
+      if (result.exitCode !== 0) {
+        const output = result.output
+          .replace(/[\\r\\n\\t]+/g, ' ')
+          .replace(/\\s+/g, ' ')
+          .trim()
+          .slice(-1500);
+        logHelperFailure(
+          'Backup helper command failed (exit code ' +
+            String(result.exitCode) +
+            '): ' +
+            command.slice(0, 400) +
+            '; output: ' +
+            (output || '[no output]'),
+        );
         throw new BackupRouteError(
           500,
           'Backup helper filesystem operation failed.',
         );
+      }
     } catch (error) {
       if (error instanceof BackupRouteError) throw error;
+      const detail =
+        error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
+      logHelperFailure(
+        'Backup helper command could not be completed: ' +
+          command.slice(0, 400) +
+          '; error: ' +
+          detail,
+      );
       throw new BackupRouteError(
         500,
         'Backup helper filesystem operation failed.',
@@ -339,7 +370,7 @@ export function createBackupSupervisor({
   async function helperPathExists(helper, path, signal) {
     try {
       return (
-        (await execExitCode(helper, 'test -d ' + shellPath(path), signal)) === 0
+        (await execExitCode(helper, 'test -d ' + shellPath(path), signal)).exitCode === 0
       );
     } catch (error) {
       if (error instanceof BackupRouteError) throw error;
