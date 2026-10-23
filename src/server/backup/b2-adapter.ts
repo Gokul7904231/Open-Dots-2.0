@@ -38,7 +38,10 @@ class AsyncByteReader {
     this.iterator = source[Symbol.asyncIterator]();
   }
 
-  async readUpTo(maxBytes: number, signal: AbortSignal): Promise<Buffer | null> {
+  async readUpTo(
+    maxBytes: number,
+    signal: AbortSignal,
+  ): Promise<Buffer | null> {
     const output = Buffer.allocUnsafe(maxBytes);
     let written = 0;
 
@@ -280,7 +283,9 @@ export class B2StorageAdapter implements StorageAdapter {
 
         while (part) {
           if (partNumber > B2_MAX_MULTIPART_PARTS) {
-            throw new Error('Backup exceeds the B2 multipart part-count limit.');
+            throw new Error(
+              'Backup exceeds the B2 multipart part-count limit.',
+            );
           }
           const uploaded = await this.client.send(
             new UploadPartCommand({
@@ -334,7 +339,7 @@ export class B2StorageAdapter implements StorageAdapter {
                 : String(abortError),
             ).slice(0, 200);
             throw new Error(
-              `B2 streaming upload failed and multipart abort could not be confirmed: ${detail}`,
+              `Multipart abort failed after B2 upload error: ${detail}`,
               { cause: error },
             );
           }
